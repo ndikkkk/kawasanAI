@@ -1,0 +1,36 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+:root { --ink:#20201e; --muted:#85847e; --line:#e7e5df; --paper:#f8f7f3; --cream:#f0ede6; --accent:#d8f36a; --dark:#282a26; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--paper); color:var(--ink); font-family:Manrope, sans-serif; }
+button,input { font:inherit; }
+button { cursor:pointer; }
+.login-shell { min-height:100vh; display:grid; place-items:center; padding:24px; background:radial-gradient(circle at 15% 15%, #fff 0, transparent 34%), var(--paper); }
+.login-card { width:min(100%, 440px); padding:52px 48px 40px; background:#fff; border:1px solid var(--line); border-radius:22px; box-shadow:0 22px 70px #292a2010; }
+.brand-mark { width:48px; height:48px; display:grid; place-items:center; border-radius:14px; color:var(--dark); background:var(--accent); font-size:25px; margin-bottom:36px; }
+.eyebrow { color:#96958e; font:500 11px 'DM Mono', monospace; letter-spacing:.16em; margin:0 0 14px; }
+h1 { margin:0; font-size:42px; letter-spacing:-.06em; line-height:1.08; }
+.muted,.welcome-copy { color:var(--muted); line-height:1.7; font-size:14px; }
+.login-form { margin-top:34px; display:grid; gap:10px; }
+label { font-size:12px; font-weight:700; }
+input { outline:0; }
+.login-form input { width:100%; border:1px solid var(--line); border-radius:10px; padding:14px 15px; background:#fcfcfa; font-size:14px; }
+.login-form input:focus,.composer:focus-within { border-color:#aeba69; box-shadow:0 0 0 3px #d8f36a44; }
+.primary-button { border:0; border-radius:10px; background:var(--dark); color:#fff; padding:15px 18px; display:flex; justify-content:space-between; align-items:center; margin-top:10px; font-weight:700; }
+.primary-button:hover { background:#3c3e38; }.primary-button:disabled { opacity:.6; cursor:wait; }
+.login-note,.composer-note { color:#aaa9a2; text-align:center; font:11px 'DM Mono', monospace; margin:28px 0 0; }
+.error-text { color:#b44943; font-size:12px; margin:3px 0; }
+.app-shell { min-height:100vh; display:flex; flex-direction:column; }
+.topbar { height:76px; padding:0 clamp(20px,5vw,74px); border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; background:#fbfaf7cc; }
+.top-brand { font-size:20px; font-weight:800; letter-spacing:-.07em; }.brand-dot { color:#9bae3a; font-size:22px; margin-right:7px; }.brand-accent { color:#aebf45; }
+.top-actions { display:flex; align-items:center; gap:22px; }.status { font:11px 'DM Mono',monospace; color:#85847e; }.status i { display:inline-block; width:6px; height:6px; border-radius:50%; background:#a7c441; margin-right:6px; }.logout-button { border:0; background:none; color:#85847e; font-size:12px; }.logout-button:hover { color:var(--ink); }
+.chat-layout { width:min(900px, calc(100% - 40px)); margin:0 auto; flex:1; display:flex; flex-direction:column; padding:clamp(55px,10vh,105px) 0 26px; }
+.welcome h1 { font-size:clamp(42px,6vw,70px); }.welcome h1 em { color:#a7b948; font-style:normal; }.welcome-copy { margin:20px 0 50px; }
+.messages { display:flex; flex-direction:column; gap:24px; min-height:80px; }.empty-hint { color:#b5b3ac; text-align:center; font-size:13px; margin:20px 0 30px; }.empty-hint span { display:block; color:#bdcf57; font-size:24px; margin-bottom:6px; }
+.message-row { display:flex; gap:12px; max-width:82%; }.message-row.user { align-self:flex-end; flex-direction:row-reverse; }.message-avatar { flex:0 0 30px; height:30px; border-radius:9px; display:grid; place-items:center; font:9px 'DM Mono',monospace; color:#77766f; background:#e9e7df; }.assistant .message-avatar { color:#50611c; background:var(--accent); font-size:16px; }.message-bubble { padding:13px 16px; border-radius:4px 16px 16px 16px; background:#fff; border:1px solid var(--line); font-size:14px; line-height:1.65; white-space:pre-wrap; }.user .message-bubble { background:var(--dark); color:#fff; border:0; border-radius:16px 4px 16px 16px; }.message-bubble p { margin:0; }
+.attachment,.pending-file { display:flex; align-items:center; gap:9px; margin-top:11px; padding:9px 11px; background:#f1f0eb; border-radius:9px; color:#686761; }.attachment span,.pending-file span { font-size:19px; }.attachment div { display:flex; flex-direction:column; }.attachment strong,.pending-file strong { font-size:11px; font-weight:700; }.attachment small,.pending-file small { font-size:10px; color:#99978f; }.user .attachment { background:#41433d; color:#eee; }.user .attachment small { color:#b8b9b1; }
+.typing { display:flex; gap:4px; padding:18px; }.typing i { width:5px; height:5px; background:#adb9a0; border-radius:50%; animation:bounce 1s infinite alternate; }.typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}@keyframes bounce{to{transform:translateY(-4px);opacity:.4}}
+.chat-error { margin:15px 0 0; }.pending-file { align-self:flex-start; margin:18px 0 8px; }.pending-file button { border:0; background:none; color:#999; font-size:18px; margin-left:8px; }
+.composer { min-height:64px; display:flex; align-items:center; gap:10px; border:1px solid var(--line); border-radius:16px; padding:8px 10px; background:#fff; margin-top:26px; transition:.2s; }.composer input:not([type=file]) { min-width:0; flex:1; border:0; padding:10px 4px; color:var(--ink); font-size:14px; background:transparent; }.composer input::placeholder { color:#b0afa9; }.attach-button,.send-button { border:0; display:grid; place-items:center; border-radius:10px; }.attach-button { width:38px; height:38px; color:#77766f; background:#f1f0eb; font-size:22px; }.send-button { width:42px; height:42px; color:#fff; background:var(--dark); font-size:21px; }.send-button:disabled { background:#d6d5cf; cursor:not-allowed; }.composer-note { margin-top:12px; }
+.composer-tools { display:flex; align-items:center; gap:10px; margin-top:22px; }.model-picker { display:flex; align-items:center; gap:8px; color:#88877f; font:11px 'DM Mono',monospace; }.model-picker select { max-width:220px; border:1px solid var(--line); border-radius:8px; padding:8px 28px 8px 10px; color:var(--ink); background:#fff; font:11px 'DM Mono',monospace; outline:0; }.model-hint { color:#aaa9a2; font:10px 'DM Mono',monospace; }
+@media (max-width:600px) { .login-card { padding:36px 25px 30px; } h1 { font-size:36px; }.topbar { height:64px; }.status { display:none; }.chat-layout { width:calc(100% - 28px); padding-top:55px; }.welcome-copy { margin-bottom:35px; }.message-row { max-width:94%; }.composer { margin-top:18px; } }

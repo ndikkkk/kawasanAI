@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Kawasan AI</title>
+  <rect width="64" height="64" rx="17" fill="#d8f36a"/>
+  <path d="M18 16h8v14l13-14h11L34 33l17 15H39L26 36v12h-8z" fill="#282a26"/>
+  <path d="m49 6 2.2 5.8L57 14l-5.8 2.2L49 22l-2.2-5.8L41 14l5.8-2.2z" fill="#282a26"/>
+</svg>

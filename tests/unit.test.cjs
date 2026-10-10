@@ -21,6 +21,135 @@ const WorkspaceStatus = require("../app/workspace-status.tsx").default;
 const SettingsDialog = require("../app/settings-dialog.tsx").default;
 const { ConfirmationDialog } = require("../app/use-confirmation.tsx");
 const ThemeToggle = require("../app/theme-toggle.tsx").default;
+const documents = require("../lib/document-text.ts");
+const documentService = require("../lib/document-service.ts");
+const { readDocument } = require("../lib/read-document.ts");
+const { boundedBody, BodyTooLarge } = require("../lib/request-body.ts");
+const DocumentPreview = require("../app/document-preview.tsx").default;
+const { documentParser, extractLocalPdf } = require("../lib/opendataloader.ts");
+
+test("parser configuration fails closed and local input limits precede Java execution", async () => {
+  assert.equal(documentParser({}), "azure");
+  assert.equal(documentParser({ DOCUMENT_PARSER: "opendataloader" }), "opendataloader");
+  assert.throws(() => documentParser({ DOCUMENT_PARSER: "typo" }), /DOCUMENT_PARSER/);
+  await assert.rejects(extractLocalPdf(Buffer.from("not pdf"), "invalid"), /bukan PDF/);
+  await assert.rejects(extractLocalPdf(Buffer.alloc(documents.DOCUMENT_UPLOAD_BYTES + 1), "large"), /4 MB/);
+});
+
+test("local PDF response is read without polling and source comes from server", async (t) => {
+  const fetch = t.mock.method(globalThis, "fetch", async () => Response.json({ status: "succeeded", source: "OpenDataLoader PDF", text: "Isi penelitian lengkap" }));
+  const file = new File(["%PDF-test"], "thesis.pdf", { type: "application/pdf" });
+  const result = await readDocument(file, new AbortController().signal, () => {});
+  assert.equal(result.source, "OpenDataLoader PDF");
+  assert.equal(result.text, "Isi penelitian lengkap");
+  assert.equal(fetch.mock.callCount(), 1);
+  const html = renderToStaticMarkup(React.createElement(DocumentPreview, { document: result, selected: 0, locked: false, onSelect() {}, onClose() {} }));
+  assert.match(html, /tanpa OCR/);
+  fetch.mock.mockImplementation(async () => Response.json({ status: "succeeded", source: "OpenDataLoader PDF", text: "" }));
+  await assert.rejects(readDocument(file, new AbortController().signal, () => {}), /Tidak ada teks/);
+  fetch.mock.mockImplementation(async () => Response.json({ error: "Parser tidak tersedia" }, { status: 503 }));
+  await assert.rejects(readDocument(file, new AbortController().signal, () => {}), /Parser tidak tersedia/);
+});
+
+test("document formats and upload limits are explicit", () => {
+  for (const name of ["thesis.pdf", "thesis.DOCX"]) assert.equal(documents.documentError({ name, size: documents.DOCUMENT_UPLOAD_BYTES, type: "" }), null);
+  assert.match(documents.documentError({ name: "x.pdf", size: documents.DOCUMENT_UPLOAD_BYTES + 1, type: "" }), /4 MB/);
+  for (const name of ["x.doc", "x.png", "x.mp3", "x.zip"]) assert.match(documents.documentError({ name, size: 1, type: "" }), /belum didukung/);
+  assert.match(documents.documentError({ name: "empty.txt", size: 0, type: "text/plain" }), /kosong/);
+  assert.match(documents.documentError({ name: "x.exe", size: 1, type: "" }), /executable/);
+});
+
+test("extraction rejects empty, binary, invalid UTF-8 and oversized content without truncation", () => {
+  for (const value of [undefined, "", "  ", "x\0y", "\ufffd", "x".repeat(500001)]) assert.throws(() => documents.validateExtractedText(value));
+  assert.equal(documents.validateExtractedText("x".repeat(500000)).length, 500000);
+});
+
+test("long documents preserve every character and explicitly label selected parts", () => {
+  const text = "a".repeat(99999) + "😀" + "b".repeat(100001);
+  const parts = documents.documentParts(text);
+  assert.equal(parts.join(""), text);
+  assert.ok(parts.every((part) => part.length <= 100000));
+  assert.equal(parts[1].slice(0, 2), "😀");
+  const document = { file: { name: "skripsi.pdf", size: 30, type: "application/pdf" }, text, source: "Azure teks/OCR" };
+  const attachment = documents.partAttachment(document, 1);
+  assert.match(attachment.name, /bagian 2\/3/);
+  assert.equal(attachment.text, parts[1]);
+  assert.throws(() => documents.partAttachment(document, -1));
+  const html = renderToStaticMarkup(React.createElement(DocumentPreview, { document, selected: null, locked: false, onSelect() {}, onClose() {} }));
+  assert.match(html, /Pilih bagian untuk dilampirkan/);
+  assert.match(html, /bukan pencarian otomatis/i);
+  assert.doesNotMatch(html, /<pre>/);
+});
+
+test("UTF-8 reading is local, complete, and cancellation-aware", async () => {
+  const file = new File(["isi skripsi\n".repeat(12000)], "skripsi.txt", { type: "text/plain" });
+  const result = await readDocument(file, new AbortController().signal, () => {});
+  assert.equal(result.text, await file.text());
+  assert.equal(result.source, "UTF-8");
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(readDocument(file, controller.signal, () => {}), /abort/i);
+});
+
+test("streamed request bodies enforce actual byte limits", async () => {
+  assert.equal(new TextDecoder().decode(await boundedBody(new Request("https://test", { method: "POST", body: "é" }), 2)), "é");
+  await assert.rejects(boundedBody(new Request("https://test", { method: "POST", body: "é" }), 1), BodyTooLarge);
+  assert.equal((await boundedBody(new Request("https://test"), 1)).length, 0);
+});
+
+const documentEnv = { DOCUMENT_INTELLIGENCE_ENDPOINT: "https://ocr.example.test", DOCUMENT_INTELLIGENCE_KEY: "test-secret", DOCUMENT_INTELLIGENCE_TIER: "S0", SESSION_SECRET: "s".repeat(32) };
+const operationId = "01234567-89ab-4cde-8fab-0123456789ab";
+test("document operation tokens reject tampering, other subjects and expiration", () => {
+  const token = documentService.operationToken(operationId, "subject", documentEnv, 1000);
+  assert.equal(documentService.readOperation(token, "subject", documentEnv, 1001), operationId);
+  for (const [value, subject, now] of [[token + "x", "subject", 1001], [token, "other", 1001], [token, "subject", 601000], ["", "subject", 1001]]) assert.throws(() => documentService.readOperation(value, subject, documentEnv, now));
+});
+
+test("Azure REST contract submits binary input and returns extracted text (mock, not OCR accuracy)", async (t) => {
+  const requests = [];
+  const text = "Hasil OCR skripsi Bab I: metode penelitian.";
+  let running = true;
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url, options });
+    if (options.method === "POST") return new Response(null, { status: 202, headers: { "operation-location": `https://ocr.example.test/documentintelligence/documentModels/prebuilt-read/analyzeResults/${operationId}?api-version=2024-11-30` } });
+    if (running) { running = false; return Response.json({ status: "running" }); }
+    return Response.json({ status: "succeeded", analyzeResult: { content: text } });
+  });
+  for (const [index, bytes] of [Buffer.from("%PDF-text"), Buffer.from("%PDF-scanned"), Buffer.from([0x50, 0x4b, 3, 4])].entries()) {
+    const subject = `rest-${index}`;
+    const token = await documentService.startDocument(bytes, subject, documentEnv);
+    assert.ok(!token.includes("test-secret"));
+    if (index === 0) assert.deepEqual(await documentService.pollDocument(token, subject, documentEnv), { status: "running" });
+    assert.deepEqual(await documentService.pollDocument(token, subject, documentEnv), { status: "succeeded", text });
+    const call = requests.filter((request) => request.options.method === "POST").at(-1);
+    assert.deepEqual(Buffer.from(JSON.parse(call.options.body).base64Source, "base64"), bytes);
+    assert.equal(call.options.headers["Ocp-Apim-Subscription-Key"], "test-secret");
+    assert.equal(call.options.redirect, "error");
+  }
+});
+
+test("Azure errors, unreadable scans, oversized results, F0 and unsafe operation URLs fail explicitly", async (t) => {
+  let response = () => Response.json({}, { status: 400 });
+  t.mock.method(globalThis, "fetch", async () => response());
+  await assert.rejects(documentService.startDocument(Buffer.from("pdf"), "errors", documentEnv), /rusak/);
+  await assert.rejects(documentService.startDocument(Buffer.from("pdf"), "errors", { ...documentEnv, DOCUMENT_INTELLIGENCE_TIER: "F0" }), /S0/);
+  await assert.rejects(documentService.startDocument(Buffer.from("pdf"), "errors", {}), /belum dikonfigurasi/);
+  response = () => new Response(null, { status: 202, headers: { "operation-location": `https://evil.test/documentintelligence/documentModels/prebuilt-read/analyzeResults/${operationId}` } });
+  await assert.rejects(documentService.startDocument(Buffer.from("pdf"), "errors", documentEnv), /Lokasi/);
+  const token = documentService.operationToken(operationId, "errors", documentEnv);
+  for (const data of [{ status: "failed" }, { status: "unknown" }, { status: "succeeded", analyzeResult: { content: "" } }, { status: "succeeded", analyzeResult: { content: "x".repeat(500001) } }]) {
+    response = () => Response.json(data);
+    await assert.rejects(documentService.pollDocument(token, "errors", documentEnv));
+  }
+  response = () => Response.json({}, { status: 429 });
+  await assert.rejects(documentService.pollDocument(token, "errors", documentEnv), /Kuota/);
+});
+
+test("document start throttling is bounded per subject and expires", () => {
+  for (let index = 0; index < 5; index++) documentService.limitDocumentStarts("limited", 1000);
+  assert.throws(() => documentService.limitDocumentStarts("limited", 1001), /5 upload/);
+  assert.doesNotThrow(() => documentService.limitDocumentStarts("different", 1001));
+  assert.doesNotThrow(() => documentService.limitDocumentStarts("limited", 601000));
+});
 
 test("confirmation dialog labels destructive actions and escapes conversation text", () => {
   const html = renderToStaticMarkup(React.createElement(ConfirmationDialog, {

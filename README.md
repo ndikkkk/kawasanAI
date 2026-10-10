@@ -58,13 +58,60 @@ Backend Next.js memvalidasi session sebelum mengakses REST API Supabase lewat `f
 - Data localStorage lama (`ruang-ai-messages` dan `kawasan-ai-v2:*`) tetap utuh dan **tidak otomatis dipublikasikan** ke grup. Migrasi/impor riwayat lama belum tersedia di UI. Hanya preferensi baru disimpan dalam `kawasan-ai-preferences`; chat bersama tidak dicache permanen oleh aplikasi di localStorage.
 - Avatar SVG lokal: `E:\web\webchatskripsi\public\avatars\user.svg`.
 
-## Lampiran: batas 20 MB dan keterbatasan nyata
+## Membaca PDF, scan, DOCX, dan teks
 
-- Batas pemilihan per file adalah 20 × 1024 × 1024 byte. Executable/script sistem seperti EXE, MSI, BAT, CMD, dan PS1 ditolak.
-- Teks/kode dibaca di browser sebagai teks UTF-8, bukan base64; maksimal 100.000 karakter pertama dikirim dan disimpan sebagai konteks percakapan. UI memperingatkan jika terpotong.
-- PDF, gambar, Office, audio/video, arsip, dan format biner lain saat ini **hanya metadata**. AI belum dapat membaca isinya; UI menyatakan ini secara eksplisit. Tidak ada penyimpanan file mentah di server.
-- Bukan upload biner 20 MB ke Vercel Function: batas body Function sekitar 4,5 MB. Aplikasi membatasi request JSON ke 3 MB dan maksimal 200 pesan. Analisis dokumen/biner penuh perlu parser dan/atau direct upload storage serta dukungan model/provider, belum diimplementasikan.
-- Jangan menganggap file dipindai antivirus. Batas ekstensi hanya pemeriksaan dasar.
+- **Teks/kode UTF-8:** dibaca di browser, file maksimal 20 MiB. Tidak memakai layanan ekstraksi berbayar.
+- **PDF:** dengan `DOCUMENT_PARSER=opendataloader` (default contoh) diproses di server aplikasi melalui CLI Java bawaan `@opendataloader/pdf`; hasilnya Markdown. File tetap diunggah ke server, bukan diproses di browser, tetapi tidak dikirim ke Azure atau hybrid backend. **Mode lokal ini belum melakukan OCR**: halaman scan/gambar dapat terlewat pada PDF campuran, dan kelengkapan halaman belum divalidasi otomatis. Periksa hasil dengan dokumen asli; gunakan OCR terpisah jika diperlukan. Jangan menganggap PDF campuran telah terbaca lengkap.
+- **DOCX:** hanya tersedia melalui Azure saat `DOCUMENT_PARSER=azure`. OpenDataLoader fokus pada PDF dan tidak memproses Word/Office.
+- **Azure:** saat `DOCUMENT_PARSER=azure`, PDF hasil scan dan DOCX dikirim setelah persetujuan ke Azure Document Intelligence `prebuilt-read`, REST API `2024-11-30`. DOC lama, gambar terpisah, audio/video, dan arsip ditolak, bukan sekadar dilampirkan sebagai metadata.
+- PDF/DOCX maksimal **4 MiB** melalui endpoint terautentikasi `/api/documents`. Pemeriksaan signature awal bukan antivirus; parser memvalidasi struktur. Dukungan ukuran ini tidak berarti OpenDataLoader langsung kompatibel dengan Vercel: Java harus tersedia di runtime.
+- Maksimal **500.000 karakter hasil ekstraksi** di memori browser. Dokumen lebih panjang ditolak dengan pesan eksplisit, tidak dipotong. Ekstraksi Azure sudah dapat dikenai biaya walaupun hasil terlalu panjang atau tidak terbaca.
+- Dokumen dibagi tanpa kehilangan karakter menjadi bagian maksimal **100.000 karakter**. Untuk dokumen multi-bagian pengguna wajib memilih bagian; tidak otomatis mengirim 100.000 karakter pertama. Pratinjau menampilkan teks yang akan dikirim. Bagian tersisa tetap di memori selama percakapan ini terbuka, tetapi hilang setelah pindah percakapan, reload, atau menutup dokumen.
+- Analisis bertahap: pilih bagian → minta analisis → pilih bagian berikutnya → minta sintesis. **Bukan RAG/retrieval otomatis**; AI hanya menerima bagian yang sudah dikirim. Batas model bergantung pada provider dan tidak diketahui dari nama model saja. Bila konteks penuh, mulai brainstorm baru dengan ringkasan sebelumnya. Angka karakter bukan jumlah token.
+- Request chat tetap maksimal 3 MiB/200 pesan, snapshot riwayat bersama 3 MiB. UI menyisihkan sekitar 950 KB untuk respons sebelum menambah pesan. Banyak dokumen tetap dapat memenuhi riwayat: ekspor lalu hapus percakapan lama. Teks bagian yang dikirim disimpan bersama dan terlihat semua pemegang kode. OpenDataLoader menulis PDF sementara di direktori temp server dan menghapusnya pada jalur selesai/gagal; crash atau penghentian paksa server dapat meninggalkan file sementara. File mentah tidak disimpan ke Supabase.
+- OCR bisa salah, terutama rumus, tabel, multikolom, kutipan, dan nomor halaman. DOCX hanya teks tertanam: gambar di DOCX **tidak** di-OCR; ekspor ke PDF jika perlu OCR gambar tersebut. Pratinjau bukan reproduksi layout asli. Periksa dengan dokumen asli sebelum digunakan dalam skripsi.
+- Lampiran metadata-only dari riwayat lama tetap terbaca sebagai metadata; tidak otomatis diekstrak ulang atau diklaim sudah dibaca.
+
+### Konfigurasi OpenDataLoader lokal
+
+1. Server memerlukan **Node.js 22.13+** (sesuai versi paket terpasang) dan **Java 11+** di PATH. Periksa `node --version` dan `java -version`, kemudian jalankan `npm install` dari `E:\web\webchatskripsi`.
+2. Isi `DOCUMENT_PARSER=opendataloader` pada `E:\web\webchatskripsi\.env.local` atau environment server lalu restart aplikasi. Tidak membutuhkan key Azure. Konfigurasi auth, database, dan provider AI tetap diperlukan. `.env.example` bukan konfigurasi aktif. Jika variabel tidak diisi, aplikasi tetap memakai Azure demi kompatibilitas instalasi lama. UI membaca konfigurasi dari server; tidak perlu variabel `NEXT_PUBLIC_DOCUMENT_PARSER`.
+3. Gunakan server/VPS/container dengan Java dan direktori temp yang bisa ditulis. Integrasi ini **bukan deployment Vercel siap pakai**; untuk hosting tanpa Java diperlukan worker terpisah yang belum diimplementasikan. Jalankan aplikasi dari root proyek. Tracing Next.js menyertakan JAR untuk route dokumen.
+4. PDF diproses sinkron dan hasil dikembalikan pada POST yang sama, tanpa job dalam memori lintas request. Batas: satu proses ekstraksi aktif per instance, heap JVM 512 MiB (bukan total memori proses), timeout 20 detik, buffer keluaran 2 MiB, 5 upload per kode/10 menit, dan 500.000 karakter hasil. PDF besar/kompleks dapat gagal karena batas waktu; batas ini tidak dihapus. Tidak ada fallback otomatis ke Azure berbayar.
+5. Temp file memakai nama acak di server. Produksi perlu isolasi OS/container non-root, kuota disk/memori, pembersihan temp setelah crash, dan limit terdistribusi. Parser subprocess bukan sandbox keamanan. Jika server menerima sinyal pembatalan request, proses Java dihentikan; deteksi browser terputus bergantung hosting. Timeout tetap berlaku.
+6. Tidak ada biaya lisensi parser per halaman pada mode lokal, tetapi hosting/CPU dan token AI tetap dapat berbiaya. Scan/OCR hybrid, DOCX lokal, retrieval otomatis, dan perubahan ikon **belum termasuk** integrasi ini.
+
+Validasi dari root proyek:
+
+```powershell
+npm test
+npm run test:opendataloader
+npm run build
+npm run test:smoke
+$env:KAWASAN_LOCAL_PDF='1'
+npm run test:smoke
+Remove-Item Env:KAWASAN_LOCAL_PDF
+```
+
+Tes OpenDataLoader menjalankan Java pada PDF sintetis dua halaman, PDF kosong, dan PDF rusak. Smoke mode lokal menguji upload PDF dua halaman melalui production route; AI/database tetap mock. Ini bukan validasi akurasi skripsi nyata, tabel kompleks, atau scan. Dokumentasi: [OpenDataLoader Node.js](https://opendataloader.org/docs/quick-start-nodejs).
+
+### Konfigurasi Azure dan biaya
+
+Bagian ini hanya berlaku saat `DOCUMENT_PARSER=azure`.
+
+1. Buat resource **Azure AI Document Intelligence**, pilih region sesuai kebutuhan privasi dan tier **S0**. Ini layanan terpisah dari TokenGateway dan Supabase.
+2. Ambil endpoint dan key di resource Azure. Isi server environment berikut di lokal/Vercel, lalu redeploy:
+   - `DOCUMENT_INTELLIGENCE_ENDPOINT=https://NAMA-RESOURCE.cognitiveservices.azure.com` (URL root HTTPS, tanpa path tambahan).
+   - `DOCUMENT_INTELLIGENCE_KEY`: secret dari Azure; jangan memakai prefix `NEXT_PUBLIC_` atau commit nilai aslinya.
+   - `DOCUMENT_INTELLIGENCE_TIER=S0`: deklarasi bahwa resource benar-benar memakai S0. Aplikasi tidak dapat memeriksa SKU Azure; admin harus memastikan tier resource sesuai.
+3. **F0 tidak didukung** karena hanya memproses dua halaman pertama; salah mendeklarasikan F0 sebagai S0 dapat menghasilkan ekstraksi parsial yang tidak terdeteksi. Resource S0 diperlukan untuk dokumen kuliah/skripsi multi-halaman.
+4. Azure Read ditagih berdasarkan halaman yang dianalisis; DOCX dihitung menurut unit halaman Azure, bukan selalu halaman tampilan Word. Token AI dan hosting ditagih terpisah. Tarif bergantung region, mata uang, dan kontrak: lihat [harga resmi](https://azure.microsoft.com/en-us/pricing/details/ai-document-intelligence/) dan kalkulator Azure sebelum mengaktifkan. Tidak ada nominal biaya tetap atau klaim OCR gratis dalam aplikasi.
+5. Atur Azure Cost Management budget/alert dan batas pemakaian/WAF. Budget alert bukan hard spending cap. Batas aplikasi 5 upload per kode/10 menit hanya best-effort per proses; bukan kuota terdistribusi dan bukan jaminan batas tagihan. Seluruh halaman upload dianalisis, tanpa page-range filter.
+6. Dokumen dikirim ke pihak ketiga Azure. Pastikan izin pemilik dan kebijakan kampus; jangan unggah data rahasia tanpa izin. Retensi hasil sementara dan kebijakan layanan Azure tetap berlaku. Tombol batal hanya menghentikan penantian browser, bukan membatalkan job Azure atau menjamin biaya berhenti. Polling memakai token HMAC terikat subjek dengan masa berlaku 10 menit; UI menunggu maksimal 4 menit.
+
+Dokumentasi format Azure: [Azure Read](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/prebuilt/read?view=doc-intel-4.0.0).
+
+Ikon tab bermerek K + kilau dengan warna Kawasan AI berada di `E:\web\webchatskripsi\app\icon.svg`, melalui konvensi metadata Next.js.
 
 ## Keamanan dan batasan
 

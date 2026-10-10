@@ -45,8 +45,14 @@ async function main() {
   await once(portProbe, "listening");
   const port = portProbe.address().port;
   await new Promise((resolve) => portProbe.close(resolve));
-  const base = `http://127.0.0.1:${port}`;
+  // Next 14 normalizes its local Request URL to localhost; browser Origin must match.
+  const base = `http://localhost:${port}`;
   let logs = "";
+  // Never use an inherited paid OCR configuration during smoke tests.
+  process.env.DOCUMENT_INTELLIGENCE_ENDPOINT = "";
+  process.env.DOCUMENT_INTELLIGENCE_KEY = "";
+  process.env.DOCUMENT_INTELLIGENCE_TIER = "";
+  process.env.DOCUMENT_PARSER = process.env.KAWASAN_LOCAL_PDF ? "opendataloader" : "azure";
   const child = spawn(process.execPath, [require.resolve("next/dist/bin/next"), "start", "-p", String(port), "-H", "127.0.0.1"], {
     cwd: path.resolve(__dirname, ".."),
     env: { ...process.env, NODE_ENV: "production", ACCESS_CODE: "smoke-code-one, smoke-code-two, ,smoke-code-three", ACCESS_CODE_2: "", SESSION_SECRET: randomBytes(32).toString("hex"), SUPABASE_URL: `http://127.0.0.1:${database.address().port}`, SUPABASE_SECRET_KEY: "sb_secret_mock_not_real", TOKEN_GATEWAY_BASE_URL: `http://127.0.0.1:${provider.address().port}/v1`, TOKEN_GATEWAY_API_KEY: "mock-key-not-real", SYSTEM_PROMPT: "Test system instruction" },
@@ -72,6 +78,8 @@ async function main() {
     assert.ok(ready, `Server did not start: ${logs}`);
     assert.equal((await fetch(base, { redirect: "manual" })).status, 307);
     assert.equal((await post("/api/chat", {})).status, 401);
+    assert.equal((await post("/api/documents", {})).status, 401);
+    assert.equal((await fetch(`${base}/api/documents?token=invalid`)).status, 401);
     assert.equal((await post("/api/chat", {}, "chat_session=authenticated")).status, 401);
     assert.equal((await post("/api/login", { code: "wrong" })).status, 401);
     const login = await post("/api/login", { code: "smoke-code-one" });
@@ -81,6 +89,27 @@ async function main() {
     assert.match(setCookie, /Secure/i);
     assert.match(setCookie, /SameSite=strict/i);
     const cookie = setCookie.split(";")[0];
+    async function uploadDocument(body, type = "application/pdf", origin) {
+      return fetch(`${base}/api/documents`, { method: "POST", headers: { Cookie: cookie, "Content-Type": type, ...(origin ? { Origin: origin } : {}) }, body });
+    }
+    assert.equal((await uploadDocument("%PDF-test", "application/pdf", "https://evil.test")).status, 403);
+    assert.equal((await uploadDocument("not supported", "image/png")).status, 415);
+    assert.equal((await uploadDocument("broken pdf")).status, 422);
+    assert.equal((await uploadDocument("broken docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")).status, process.env.KAWASAN_LOCAL_PDF ? 415 : 422);
+    assert.equal((await uploadDocument("%PDF-" + "x".repeat(4 * 1024 * 1024))).status, 413);
+    if (process.env.KAWASAN_LOCAL_PDF) {
+      const parsed = await uploadDocument(require("./pdf-fixture.cjs")());
+      assert.equal(parsed.status, 200, await parsed.clone().text());
+      const data = await parsed.json();
+      assert.equal(data.source, "OpenDataLoader PDF");
+      assert.match(data.text, /THESIS_PAGE_ONE/);
+      assert.match(data.text, /THESIS_PAGE_TWO/);
+      console.log("PASS real OpenDataLoader PDF through production route (both pages)");
+    } else {
+      const noOcr = await uploadDocument("%PDF-test");
+      assert.equal(noOcr.status, 503);
+      assert.match((await noOcr.json()).error, /belum dikonfigurasi/);
+    }
     const second = await post("/api/login", { code: "smoke-code-two" });
     assert.equal(second.status, 200);
     const secondCookie = second.headers.get("set-cookie").split(";")[0];
@@ -91,6 +120,10 @@ async function main() {
     assert.equal(page.status, 200);
     const html = await page.text();
     assert.match(html, /Kawasan AI/);
+    assert.match(html, /rel="icon"[^>]*icon\.svg/);
+    const icon = await fetch(`${base}/icon.svg`);
+    assert.equal(icon.status, 200);
+    assert.match(await icon.text(), /Kawasan AI/);
     assert.ok(!html.includes("sb_secret_mock_not_real"));
     assert.equal((await getHistory()).status, 401);
     assert.equal((await getHistory("chat_session=authenticated")).status, 401);
@@ -147,10 +180,15 @@ async function main() {
     assert.equal((await post("/api/chat", { preferences: { name: "Dika", instructions: 123 }, messages: [{ role: "user", content: "Halo" }] }, cookie)).status, 400);
     assert.equal((await post("/api/chat", { preferences: { name: "Dika", instructions: "x".repeat(3 * 1024 * 1024) }, messages: [{ role: "user", content: "Halo" }] }, cookie)).status, 413);
     assert.equal(calls.length, 2);
+    const selectedText = "Teks ekstraksi bagian kedua. ".repeat(3000) + "END_OF_SELECTED_DOCUMENT";
+    const documentChat = await post("/api/chat", { messages: [{ role: "user", content: `Analisis bagian 2/2\n${selectedText}` }] }, cookie);
+    assert.equal(documentChat.status, 200);
+    assert.ok(calls[2].body.messages.at(-1).content.endsWith(selectedText));
+    if (process.env.KAWASAN_BROWSER) await require("./browser.cjs")(base, cookie, process.env.KAWASAN_BROWSER);
     const logout = await post("/api/logout", {}, cookie);
     assert.equal(logout.status, 200);
     assert.match(logout.headers.get("set-cookie"), /1970/);
-    console.log("PASS: comma-separated codes, signed sessions, shared history across codes, atomic conflicts, rename/delete, history validation/size/origin/access checks, database failure, server-only secret header, avatar, AI mock, personalization, logout. No real external requests.");
+    console.log("PASS: auth, shared history/conflicts, database errors, chat payload limits, document auth/origin/format/size/configuration errors, favicon, complete selected text reaching AI mock, personalization, logout. No real external requests; OCR accuracy not tested.");
   } finally {
     child.kill();
     provider.closeAllConnections();

@@ -2,16 +2,16 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { AVAILABLE_MODELS, isAvailableModel } from "../../../lib/models";
 import { sameOrigin, SESSION_COOKIE, verifySession } from "../../../lib/auth";
+import { BodyTooLarge, boundedBody } from "../../../lib/request-body";
 
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
   if (!verifySession(cookies().get(SESSION_COOKIE)?.value)) return NextResponse.json({ error: "Session berakhir. Silakan login kembali." }, { status: 401 });
   if (!sameOrigin(request)) return NextResponse.json({ error: "Origin ditolak." }, { status: 403 });
-  const raw = await request.text();
-  if (Buffer.byteLength(raw) > 3 * 1024 * 1024) return NextResponse.json({ error: "Konteks terlalu besar. Mulai brainstorm baru atau kurangi lampiran." }, { status: 413 });
   let body;
-  try { body = JSON.parse(raw); } catch { return NextResponse.json({ error: "Request tidak valid." }, { status: 400 }); }
+  try { body = JSON.parse(Buffer.from(await boundedBody(request, 3 * 1024 * 1024)).toString("utf8")); }
+  catch (error) { return NextResponse.json({ error: error instanceof BodyTooLarge ? "Konteks terlalu besar. Mulai brainstorm baru atau kurangi lampiran." : "Request tidak valid." }, { status: error instanceof BodyTooLarge ? 413 : 400 }); }
   if (!Array.isArray(body?.messages) || !body.messages.length || body.messages.length > 200 ||
     !body.messages.every((m: { role?: unknown; content?: unknown } | null) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length <= 150000)) {
     return NextResponse.json({ error: "Pesan tidak valid atau terlalu panjang (maksimal 200 pesan)." }, { status: 400 });

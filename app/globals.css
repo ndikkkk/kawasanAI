@@ -1,6 +1,14 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
 
 :root { --ink:#20201e; --muted:#85847e; --line:#e7e5df; --paper:#f8f7f3; --cream:#f0ede6; --accent:#d8f36a; --dark:#282a26; }
+.document-preview { margin-top:16px; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--paper); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.document-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.document-preview p { color:var(--muted); }
+.document-preview button,.document-preview select,.document-cancel { padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--paper); color:var(--ink); max-width:100%; }
+.document-preview label { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.document-preview details { margin-top:12px; }
+.document-preview pre { max-height:260px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
+.document-cancel { align-self:flex-start; margin-top:8px; }
 * { box-sizing:border-box; }
 .user-avatar { display:block; width:30px; height:30px; border-radius:9px; object-fit:cover; }
 body { margin:0; background:var(--paper); color:var(--ink); font-family:Manrope, sans-serif; }

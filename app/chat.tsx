@@ -3,7 +3,11 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { AVAILABLE_MODELS } from "../lib/models";
-import { Attachment, ChatMessage, Conversation, fileError, MAX_FILE_TEXT, messageContent, newConversation, textFile } from "../lib/chat-store";
+import { Attachment, ChatMessage, Conversation, messageContent, newConversation } from "../lib/chat-store";
+import { documentError, documentFile, documentParts, ExtractedDocument, partAttachment } from "../lib/document-text";
+import { documentConfiguration, readDocument } from "../lib/read-document";
+import { HISTORY_BYTES } from "../lib/shared-history";
+import DocumentPreview from "./document-preview";
 import SettingsDialog from "./settings-dialog";
 import useSharedWorkspace from "./use-shared-workspace";
 import WorkspaceStatus from "./workspace-status";
@@ -17,6 +21,9 @@ function formatSize(size: number) {
 export default function Chat() {
   const [input, setInput] = useState("");
   const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [document, setDocument] = useState<ExtractedDocument | null>(null);
+  const [selectedPart, setSelectedPart] = useState<number | null>(null);
+  const extraction = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
   const [reading, setReading] = useState(false);
   const [error, setError] = useState("");
@@ -31,7 +38,7 @@ export default function Chat() {
   const bottom = useRef<HTMLDivElement>(null);
   const sending = useRef(false);
   const controller = useRef<AbortController | null>(null);
-  useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => () => { controller.current?.abort(); extraction.current?.abort(); }, []);
 
   const active = workspace?.conversations.find((chat) => chat.id === workspace.activeId);
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [active?.id, active?.messages.length, busy]);
@@ -45,7 +52,7 @@ export default function Chat() {
     setWorkspace((current) => current ? { ...current, conversations: current.conversations.map((chat) => chat.id === id ? change(chat) : chat) } : current);
   }
 
-  function resetComposer() { setInput(""); setAttachment(null); setError(""); setNotice(""); setEditingId(null); setMobileOpen(false); }
+  function resetComposer() { setInput(""); setAttachment(null); setDocument(null); setSelectedPart(null); setError(""); setNotice(""); setEditingId(null); setMobileOpen(false); }
   function createChat() {
     if (sending.current || reading || saving) return;
     if ((workspace?.conversations.length ?? 0) >= 100) { setError("Maksimal 100 percakapan bersama. Ekspor lalu hapus percakapan yang tidak diperlukan."); return; }
@@ -80,23 +87,30 @@ export default function Chat() {
   async function selectFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file || sending.current) return;
-    const invalid = fileError(file);
+    if (!file || sending.current || extraction.current || saving) return;
+    const invalid = documentError(file);
     if (invalid) { setError(invalid); return; }
     setReading(true); setError(""); setNotice("");
+    const abort = new AbortController();
+    extraction.current = abort;
+    let timer: number | undefined;
     try {
-      let text: string | undefined;
-      if (textFile(file)) {
-        const extracted = await file.text();
-        if (extracted.includes("\u0000")) throw new Error("Isi file tampak biner, bukan teks yang dapat dibaca.");
-        text = extracted.slice(0, MAX_FILE_TEXT);
-        if (extracted.length > MAX_FILE_TEXT) setNotice("File dipilih, tetapi hanya 100.000 karakter pertama yang dikirim agar konteks tidak terlalu besar.");
-      } else {
-        setNotice("Format ini hanya dilampirkan sebagai nama/ukuran. AI belum bisa membaca isi gambar, PDF, Office, audio, video, atau arsip pada versi ini.");
+      if (documentFile(file)) {
+        const parser = await documentConfiguration();
+        if (parser === "opendataloader" && /\.docx$/i.test(file.name)) throw new Error("OpenDataLoader hanya membaca PDF. Ekspor DOCX ke PDF atau gunakan mode Azure.");
+        if (!await confirm({ title: parser === "opendataloader" ? "Baca PDF dengan OpenDataLoader?" : "Baca dokumen melalui Azure?", description: parser === "opendataloader"
+          ? "PDF diproses di server aplikasi, bukan di browser, tanpa API Azure dan tanpa biaya parser per halaman. Mode ini belum menjalankan OCR: scan serta gambar dapat tidak terbaca, termasuk pada PDF campuran. Hasil yang dikirim ke AI terlihat dalam riwayat bersama dan tetap memakai token AI. Periksa kelengkapan hasil sebelum mengirim."
+          : "File ini akan dikirim ke Azure Document Intelligence untuk ekstraksi teks/OCR. Pemrosesan dikenai biaya Azure per halaman, terpisah dari token AI. Hasil yang Anda kirim ke chat akan terlihat oleh semua pemegang kode. Jangan unggah dokumen rahasia tanpa izin. Membatalkan setelah upload tidak menjamin biaya berhenti.", label: "Setuju, baca dokumen" })) return;
       }
-      setAttachment({ name: file.name, type: file.type || "application/octet-stream", size: file.size, text });
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "File tidak dapat dibaca."); }
-    finally { setReading(false); }
+      timer = window.setTimeout(() => abort.abort(), 240000);
+      const extracted = await readDocument(file, abort.signal, setNotice);
+      setDocument(extracted);
+      const parts = documentParts(extracted.text);
+      setSelectedPart(parts.length === 1 ? 0 : null);
+      setAttachment(parts.length === 1 ? partAttachment(extracted, 0) : null);
+      setNotice(parts.length === 1 ? "Teks siap dilampirkan. Periksa pratinjau sebelum mengirim." : `Dokumen dibaca menjadi ${parts.length} bagian tanpa pemotongan. Pilih bagian yang akan dianalisis.`);
+    } catch (reason) { setNotice(""); setError(abort.signal.aborted ? "Pembacaan dibatalkan atau melewati 4 menit. Jika memakai Azure, job dapat tetap berjalan dan dikenai biaya." : reason instanceof Error ? reason.message : "File tidak dapat dibaca."); }
+    finally { window.clearTimeout(timer); extraction.current = null; setReading(false); }
   }
 
   async function send(event: FormEvent) {
@@ -108,10 +122,13 @@ export default function Chat() {
     const body = JSON.stringify({ model: active.model, preferences: workspace.preferences, messages: next.map((message) => ({ role: message.role, content: messageContent(message) })) });
     // Reserve one message for the assistant so the completed turn remains persistable.
     if (next.length >= 200 || new Blob([body]).size > 3 * 1024 * 1024) { setError("Konteks terlalu panjang. Mulai New Brainstorm agar dapat melanjutkan."); return; }
+    const projected = workspace.conversations.map((chat) => chat.id === active.id ? { ...chat, messages: next } : chat);
+    // Reserve room for an assistant response (up to 150,000 characters with JSON escaping).
+    if (new Blob([JSON.stringify({ revision: "0".repeat(36), conversations: projected })]).size > HISTORY_BYTES - 950000) { setError("Riwayat bersama hampir penuh. Ekspor lalu hapus percakapan lama sebelum menambah dokumen; ruang disisihkan untuk jawaban AI."); return; }
     sending.current = true; setBusy(true); setError("");
     const id = active.id;
     updateChat(id, (chat) => ({ ...chat, messages: next, updatedAt: Date.now(), title: chat.messages.length === 0 && chat.title === "New Brainstorm" ? userText.slice(0, 70) : chat.title }));
-    setInput(""); setAttachment(null); setNotice("");
+    setInput(""); setAttachment(null); setSelectedPart(null); setNotice("");
     controller.current = new AbortController();
     const timer = window.setTimeout(() => controller.current?.abort(), 65000);
     try {
@@ -123,7 +140,7 @@ export default function Chat() {
     } catch (reason) {
       // Roll back this failed turn so retrying does not duplicate the prompt.
       updateChat(id, (chat) => ({ ...chat, messages: active.messages }));
-      setInput(userText); setAttachment(attachment);
+      setInput(userText); setAttachment(attachment); setSelectedPart(selectedPart);
       setError(reason instanceof Error && reason.name !== "AbortError" ? reason.message : "Permintaan melewati batas waktu. Silakan kirim ulang.");
     } finally { window.clearTimeout(timer); sending.current = false; setBusy(false); controller.current = null; }
   }
@@ -169,11 +186,13 @@ export default function Chat() {
         </div>
         {error && <p role="alert" className="error-text chat-error">{error}</p>}
         {notice && <p role="status" className="file-notice">{notice}</p>}
+        {reading && <button type="button" className="document-cancel" onClick={() => extraction.current?.abort()}>Batalkan pembacaan</button>}
+        {document && <DocumentPreview document={document} selected={selectedPart} locked={locked} onSelect={(index) => { setSelectedPart(index); setAttachment(partAttachment(document, index)); setNotice(`Bagian ${index + 1} siap dikirim. Bagian lain tidak otomatis dibaca AI.`); }} onClose={() => { setDocument(null); setSelectedPart(null); setAttachment(null); setNotice(""); }} />}
         {attachment && <div className="pending-file"><span>▧</span><strong>{attachment.name}</strong><small>{formatSize(attachment.size)}</small><button disabled={locked} aria-label="Hapus lampiran" onClick={() => { setAttachment(null); setNotice(""); }}>×</button></div>}
-        <div className="composer-tools"><label className="model-picker"><span>Model</span><select value={active.model} disabled={locked} onChange={(event) => updateChat(active.id, (chat) => ({ ...chat, model: event.target.value }))}>{AVAILABLE_MODELS.map((model) => <option key={model}>{model}</option>)}</select></label><span className="model-hint">File maks. 20 MB</span></div>
+        <div className="composer-tools"><label className="model-picker"><span>Model</span><select value={active.model} disabled={locked} onChange={(event) => updateChat(active.id, (chat) => ({ ...chat, model: event.target.value }))}>{AVAILABLE_MODELS.map((model) => <option key={model}>{model}</option>)}</select></label><span className="model-hint">PDF/DOCX 4 MB · Teks 20 MB</span></div>
         <form className="composer" onSubmit={send}><button type="button" className="attach-button" disabled={locked} onClick={() => fileInput.current?.click()} aria-label="Lampirkan file maksimal 20 MB">＋</button><input ref={fileInput} type="file" hidden onChange={selectFile} /><AutoTextarea rows={2} maxLength={20000} aria-label="Pesan" value={input} onChange={(event) => setInput(event.target.value)} placeholder={reading ? "Membaca file…" : "Tulis idemu…"} disabled={locked} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} /><button className="send-button" aria-label="Kirim" disabled={locked || (!input.trim() && !attachment)}>↑</button></form>
         <p className="composer-note">Enter untuk kirim · Shift+Enter untuk baris baru. AI dapat membuat kesalahan.</p>
-        <p className="file-support">AI membaca 100.000 karakter pertama file teks/kode. PDF, gambar, Word, dan format lainnya baru mengirim info file, bukan isinya.</p>
+        <p className="file-support">PDF diproses lokal dengan OpenDataLoader atau Azure sesuai konfigurasi. DOCX melalui Azure. Teks/kode UTF-8 dibaca di browser. Maks. 500.000 karakter hasil ekstraksi, dipilih per bagian maks. 100.000 karakter; tidak dipotong diam-diam. Batas konteks model dan request 3 MB tetap berlaku. Gambar/audio/DOC lama belum didukung.</p>
       </section>
     </div>
     {settingsOpen && <SettingsDialog initial={workspace.preferences} onClose={() => setSettingsOpen(false)} onSave={(preferences) => setWorkspace((current) => current ? { ...current, preferences } : current)} />}

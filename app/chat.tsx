@@ -3,21 +3,21 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { AVAILABLE_MODELS } from "../lib/models";
-import { Attachment, ChatMessage, Conversation, Workspace, fileError, MAX_FILE_TEXT, messageContent, migrateLegacy, newConversation, newWorkspace, restoreWorkspace, textFile } from "../lib/chat-store";
+import { Attachment, ChatMessage, Conversation, fileError, MAX_FILE_TEXT, messageContent, newConversation, textFile } from "../lib/chat-store";
 import SettingsDialog from "./settings-dialog";
+import useSharedWorkspace from "./use-shared-workspace";
 
 function formatSize(size: number) {
   return size < 1024 * 1024 ? `${Math.ceil(size / 1024)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export default function Chat({ storageId, canMigrateLegacy }: { storageId: string; canMigrateLegacy: boolean }) {
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+export default function Chat() {
   const [input, setInput] = useState("");
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [busy, setBusy] = useState(false);
   const [reading, setReading] = useState(false);
   const [error, setError] = useState("");
-  const [storageError, setStorageError] = useState("");
+  const { workspace, setWorkspace, storageError, saving, pending, save, reload, exportHistory } = useSharedWorkspace(busy || reading);
   const [notice, setNotice] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -27,30 +27,7 @@ export default function Chat({ storageId, canMigrateLegacy }: { storageId: strin
   const bottom = useRef<HTMLDivElement>(null);
   const sending = useRef(false);
   const controller = useRef<AbortController | null>(null);
-  const writable = useRef(true);
-  const storageKey = `kawasan-ai-v2:${storageId}`;
-
-  useEffect(() => {
-    writable.current = true;
-    try {
-      const saved = localStorage.getItem(storageKey);
-      const legacy = !saved && canMigrateLegacy ? localStorage.getItem("ruang-ai-messages") : null;
-      setWorkspace(saved ? restoreWorkspace(saved) : legacy ? migrateLegacy(legacy) : newWorkspace());
-    } catch {
-      writable.current = false;
-      setStorageError("Riwayat tidak dapat dibaca. Data lama tidak ditimpa; perubahan sesi ini tidak tersimpan. Periksa penyimpanan browser.");
-      setWorkspace(newWorkspace());
-    }
-    return () => { controller.current?.abort(); };
-  }, [storageKey, canMigrateLegacy]);
-
-  useEffect(() => {
-    if (!workspace || !writable.current) return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(workspace));
-      setStorageError("");
-    } catch { setStorageError("Penyimpanan browser penuh atau diblokir. Perubahan terbaru belum tersimpan; hapus riwayat yang tidak diperlukan."); }
-  }, [workspace, storageKey]);
+  useEffect(() => () => controller.current?.abort(), []);
 
   const active = workspace?.conversations.find((chat) => chat.id === workspace.activeId);
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [active?.id, active?.messages.length, busy]);
@@ -66,24 +43,25 @@ export default function Chat({ storageId, canMigrateLegacy }: { storageId: strin
 
   function resetComposer() { setInput(""); setAttachment(null); setError(""); setNotice(""); setEditingId(null); setMobileOpen(false); }
   function createChat() {
-    if (sending.current || reading) return;
+    if (sending.current || reading || saving) return;
+    if ((workspace?.conversations.length ?? 0) >= 100) { setError("Maksimal 100 percakapan bersama. Ekspor lalu hapus percakapan yang tidak diperlukan."); return; }
     const chat = newConversation();
     setWorkspace((current) => current ? { ...current, conversations: [chat, ...current.conversations], activeId: chat.id } : current);
     resetComposer();
   }
   function selectChat(id: string) {
-    if (sending.current || reading) return;
+    if (sending.current || reading || saving) return;
     setWorkspace((current) => current ? { ...current, activeId: id } : current);
     resetComposer();
   }
   function rename(event: FormEvent, id: string) {
     event.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || sending.current || reading || saving) return;
     updateChat(id, (chat) => ({ ...chat, title: title.trim().slice(0, 70) }));
     setEditingId(null);
   }
   function deleteChat(chat: Conversation) {
-    if (sending.current || reading || !window.confirm(`Hapus "${chat.title}"? Riwayat ini tidak dapat dipulihkan.`)) return;
+    if (sending.current || reading || !window.confirm(`Hapus "${chat.title}" untuk SEMUA pengguna? Riwayat ini tidak dapat dipulihkan.`)) return;
     setWorkspace((current) => {
       if (!current) return current;
       const remaining = current.conversations.filter((item) => item.id !== chat.id);
@@ -117,12 +95,13 @@ export default function Chat({ storageId, canMigrateLegacy }: { storageId: strin
 
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (!active || !workspace || (!input.trim() && !attachment) || sending.current || reading) return;
+    if (!active || !workspace || (!input.trim() && !attachment) || sending.current || reading || saving) return;
     const userText = input.trim() || "Tolong analisis file yang saya lampirkan.";
     const userMessage: ChatMessage = { role: "user", content: userText, ...(attachment ? { attachment } : {}) };
     const next = [...active.messages, userMessage];
     const body = JSON.stringify({ model: active.model, preferences: workspace.preferences, messages: next.map((message) => ({ role: message.role, content: messageContent(message) })) });
-    if (next.length > 200 || new Blob([body]).size > 3 * 1024 * 1024) { setError("Konteks terlalu panjang. Mulai New Brainstorm agar dapat melanjutkan."); return; }
+    // Reserve one message for the assistant so the completed turn remains persistable.
+    if (next.length >= 200 || new Blob([body]).size > 3 * 1024 * 1024) { setError("Konteks terlalu panjang. Mulai New Brainstorm agar dapat melanjutkan."); return; }
     sending.current = true; setBusy(true); setError("");
     const id = active.id;
     updateChat(id, (chat) => ({ ...chat, messages: next, updatedAt: Date.now(), title: chat.messages.length === 0 && chat.title === "New Brainstorm" ? userText.slice(0, 70) : chat.title }));
@@ -133,6 +112,7 @@ export default function Chat({ storageId, canMigrateLegacy }: { storageId: strin
       const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: controller.current.signal });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || typeof data.content !== "string") throw new Error(data.error || `Chat gagal (${response.status}).`);
+      if (data.content.length > 150000) throw new Error("Jawaban terlalu panjang untuk disimpan. Coba minta jawaban lebih ringkas.");
       updateChat(id, (chat) => ({ ...chat, messages: [...chat.messages, { role: "assistant", content: data.content }], updatedAt: Date.now() }));
     } catch (reason) {
       // Roll back this failed turn so retrying does not duplicate the prompt.
@@ -143,6 +123,7 @@ export default function Chat({ storageId, canMigrateLegacy }: { storageId: strin
   }
 
   async function logout() {
+    if (pending && !window.confirm("Ada perubahan belum tersimpan. Keluar tanpa menyimpannya? Sebaiknya ekspor cadangan terlebih dahulu.")) return;
     try {
       const response = await fetch("/api/logout", { method: "POST" });
       if (!response.ok) throw new Error();
@@ -150,8 +131,8 @@ export default function Chat({ storageId, canMigrateLegacy }: { storageId: strin
     } catch { setError("Gagal keluar. Periksa koneksi dan coba lagi."); }
   }
 
-  if (!workspace || !active) return <main className="login-shell"><p role="status">Memuat Kawasan AI…</p></main>;
-  const locked = busy || reading;
+  if (!workspace || !active) return <main className="login-shell"><div><p role="status">{storageError || "Memuat riwayat bersama Kawasan AI…"}</p>{storageError && <button onClick={reload}>Coba lagi</button>}<button onClick={logout}>Keluar</button></div></main>;
+  const locked = busy || reading || saving;
 
   return <main className={`workspace ${workspace.collapsed ? "sidebar-collapsed" : ""} ${mobileOpen ? "mobile-sidebar-open" : ""}`}>
     {mobileOpen && <button className="sidebar-backdrop" aria-label="Tutup sidebar" onClick={() => setMobileOpen(false)} />}
@@ -167,13 +148,14 @@ export default function Chat({ storageId, canMigrateLegacy }: { storageId: strin
           </>}
         </div>)}
       </nav>
-      <div className="sidebar-footer"><button className="settings-button" title="Pengaturan" aria-label="Pengaturan" onClick={() => setSettingsOpen(true)}><span>⚙</span><span className="sidebar-label">{workspace.preferences.name || "Pengaturan"}</span></button><p className="sidebar-label storage-note">Riwayat lokal di browser ini.<br />Belum sinkron antarperangkat.</p></div>
+      <div className="sidebar-footer"><button className="settings-button" title="Pengaturan" aria-label="Pengaturan" onClick={() => setSettingsOpen(true)}><span>⚙</span><span className="sidebar-label">{workspace.preferences.name || "Pengaturan"}</span></button><p className="sidebar-label storage-note">Riwayat bersama semua pengguna.<br />Pembaruan otomatis tiap 10 detik.</p></div>
     </aside>
     <div className="app-shell workspace-main">
       <header className="topbar"><button className="mobile-toggle icon-button" aria-label="Buka sidebar" aria-controls="chat-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}>☰</button><div className="top-brand"><span className="brand-dot">✦</span><span>kawasan<span className="brand-accent">.</span>ai</span></div><div className="top-actions"><button onClick={logout} disabled={locked} className="logout-button">Keluar</button></div></header>
       <section className="chat-layout">
         {active.messages.length === 0 ? <div className="welcome"><p className="eyebrow">KAWASAN AI{workspace.preferences.name ? ` · Halo, ${workspace.preferences.name}` : ""}</p><h1>Apa yang ingin<br /><em>kamu jelajahi?</em></h1><p className="welcome-copy">Mulai brainstorm, unggah file, dan biarkan ide berkembang.</p></div> : <h1 className="conversation-heading">{active.title}</h1>}
         {storageError && <p role="alert" className="error-text">{storageError}</p>}
+        <div className="history-sync"><span role="status">{saving ? "Menyimpan…" : pending ? "Perubahan belum tersimpan" : "Riwayat bersama dimuat"}</span><button disabled={locked || !pending} onClick={() => void save()}>Coba simpan</button><button disabled={locked} onClick={reload}>Muat ulang</button><button onClick={exportHistory}>Ekspor cadangan</button></div>
         <div className="messages" role="log" aria-label="Pesan chat" aria-live="polite">
           {active.messages.map((message, index) => <div className={`message-row ${message.role}`} key={`${active.id}-${index}`}><div className="message-avatar">{message.role === "assistant" ? <span role="img" aria-label="Asisten AI">✦</span> : <Image className="user-avatar" src="/avatars/user.svg" alt={workspace.preferences.name ? `Avatar ${workspace.preferences.name}` : "Avatar pengirim"} width={30} height={30} unoptimized />}</div><div className="message-bubble"><p>{message.content}</p>{message.attachment && <div className="attachment"><span>▧</span><div><strong>{message.attachment.name}</strong><small>{formatSize(message.attachment.size)} · {message.attachment.text === undefined ? "Metadata saja" : "Konteks teks"}</small></div></div>}</div></div>)}
           {busy && <div className="message-row assistant"><div className="message-avatar">✦</div><div className="message-bubble typing" aria-label="AI sedang merespons"><i /><i /><i /></div></div>}

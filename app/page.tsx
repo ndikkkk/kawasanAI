@@ -9,5 +9,5 @@ export default function Home() {
     redirect("/login");
   }
 
-  return <Chat key={session.subject} storageId={session.subject} canMigrateLegacy={session.canMigrateLegacy} />;
+  return <Chat key={session.subject} />;
 }

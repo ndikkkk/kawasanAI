@@ -15,13 +15,11 @@ const store = require("../lib/chat-store.ts");
 const { allowLogin } = require("../lib/login-limit.ts");
 const env = { ACCESS_CODE: "test-code-one", ACCESS_CODE_2: "test-code-two", SESSION_SECRET: "a-test-secret-that-is-at-least-32-characters" };
 
-test("both access codes work and have separate storage identities", () => {
+test("both access codes work and retain distinct session subjects for revocation", () => {
   const first = auth.verifySession(auth.issueSession(env.ACCESS_CODE, env), env);
   const second = auth.verifySession(auth.issueSession(env.ACCESS_CODE_2, env), env);
   assert.ok(first && second);
   assert.notEqual(first.subject, second.subject);
-  assert.equal(first.canMigrateLegacy, true);
-  assert.equal(second.canMigrateLegacy, false);
   assert.equal(auth.issueSession("wrong", env), null);
   assert.equal(auth.issueSession(null, env), null);
 });
@@ -36,6 +34,26 @@ test("fixed cookie, tampered signature, expiry and removed codes are rejected", 
   assert.equal(auth.verifySession(token, { ...env, ACCESS_CODE: "replacement" }, now), null);
   assert.equal(auth.verifySession(token, { ...env, SESSION_SECRET: "another-test-secret-longer-than-32-characters" }, now), null);
   assert.equal(auth.verifySession("bad.json", env, now), null);
+});
+
+test("comma-separated codes support whitespace, duplicates and empty entries", () => {
+  const config = { ...env, ACCESS_CODE: " first-code, second-code, ,first-code,third-code, ", ACCESS_CODE_2: "" };
+  for (const code of ["first-code", "second-code", "third-code", " second-code "]) {
+    assert.ok(auth.verifySession(auth.issueSession(code, config), config));
+  }
+  assert.equal(auth.issueSession(config.ACCESS_CODE, config), null);
+  assert.equal(auth.issueSession("FIRST-CODE", config), null);
+  assert.equal(auth.issueSession("   ", config), null);
+  assert.equal(auth.authConfigured({ ...config, ACCESS_CODE: " , , " }), false);
+});
+
+test("list changes retain registered sessions and revoke only removed codes", () => {
+  const config = { ...env, ACCESS_CODE: "first,second", ACCESS_CODE_2: "" };
+  const first = auth.issueSession("first", config);
+  const second = auth.issueSession("second", config);
+  assert.ok(auth.verifySession(first, { ...config, ACCESS_CODE: "third,second,first" }));
+  assert.equal(auth.verifySession(first, { ...config, ACCESS_CODE: "second" }), null);
+  assert.ok(auth.verifySession(second, { ...config, ACCESS_CODE: "second" }));
 });
 
 test("missing or short session secret fails closed; foreign origins rejected", () => {
@@ -87,4 +105,22 @@ test("missing active conversation falls back; metadata never pretends to include
   assert.equal(store.restoreWorkspace(JSON.stringify(workspace)).activeId, workspace.conversations[0].id);
   const content = store.messageContent({ role: "user", content: "Baca", attachment: { name: "file.pdf", type: "application/pdf", size: 100 } });
   assert.match(content, /Isi file tidak tersedia/);
+});
+
+test("shared history validates bounded conversations and revision filters", () => {
+  const shared = require("../lib/shared-history.ts");
+  const chat = store.newConversation();
+  assert.equal(shared.validRevision(chat.id), true);
+  assert.equal(shared.validRevision("x&revision=neq.y"), false);
+  assert.equal(shared.validConversations([]), true);
+  assert.equal(shared.validConversations([chat]), true);
+  assert.equal(shared.validConversations([chat, chat]), false);
+  for (const patch of [{ id: "bad" }, { title: "x".repeat(71) }, { model: "bad" }, { updatedAt: -1 }, { messages: [null] }, { messages: [{ role: "system", content: "bad" }] }]) {
+    assert.equal(shared.validConversations([{ ...chat, ...patch }]), false);
+  }
+  const attachment = { name: "test.txt", size: 20, type: "text/plain", text: "a".repeat(store.MAX_FILE_TEXT) };
+  assert.equal(shared.validConversations([{ ...chat, messages: [{ role: "user", content: "Read", attachment }] }]), true);
+  assert.equal(shared.validConversations([{ ...chat, messages: [{ role: "user", content: "Read", attachment: { ...attachment, text: attachment.text + "a" } }] }]), false);
+  assert.equal(shared.validConversations(Array.from({ length: 101 }, () => store.newConversation())), false);
+  assert.equal(shared.validConversations([{ ...chat, messages: Array.from({ length: 201 }, () => ({ role: "user", content: "hello" })) }]), false);
 });

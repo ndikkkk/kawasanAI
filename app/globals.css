@@ -60,6 +60,8 @@ input { outline:0; }
 .settings-button > span:first-child { font-size:22px; }
 .settings-button .sidebar-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .storage-note { font-size:10px; line-height:1.6; color:var(--muted); padding:0 10px; }
+.history-sync { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:20px; font-size:11px; color:var(--muted); }
+.history-sync button { border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:var(--paper); color:var(--ink); }
 .sidebar-collapsed .sidebar { width:68px; flex-basis:68px; padding:20px 8px; }
 .sidebar-collapsed .sidebar-label { display:none; }
 .sidebar-collapsed .sidebar-heading,.sidebar-collapsed .history-select,.sidebar-collapsed .new-chat,.sidebar-collapsed .settings-button { justify-content:center; }

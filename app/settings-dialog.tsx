@@ -21,7 +21,7 @@ export default function SettingsDialog({ initial, onSave, onClose }: { initial: 
       <label htmlFor="personal-instructions">Personalisasi jawaban</label>
       <textarea id="personal-instructions" maxLength={2000} rows={6} value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Contoh: gunakan bahasa Indonesia santai, jelaskan bertahap, dan beri contoh kode." />
       <small>{instructions.length}/2000 karakter</small>
-      <p className="muted">Preferensi berlaku untuk pesan berikutnya dan dikirim ke provider AI. Jangan masukkan kata sandi atau API key. Riwayat dan pengaturan tersimpan di browser ini, terpisah menurut kode akses.</p>
+      <p className="muted">Preferensi berlaku untuk pesan berikutnya dan dikirim ke provider AI. Nama dan preferensi disimpan hanya di browser ini. Riwayat chat dan isi lampiran teks dibagikan ke semua pengguna yang memiliki kode akses. Jangan masukkan kata sandi atau API key.</p>
       <div className="dialog-actions"><button type="button" onClick={() => dialog.current?.close()}>Batal</button><button className="primary-button">Simpan pengaturan</button></div>
     </form>
   </dialog>;

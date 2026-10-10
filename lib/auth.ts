@@ -6,7 +6,11 @@ type Environment = Record<string, string | undefined>;
 type Session = { subject: string; expires: number; version: string; nonce: string };
 
 function codes(env: Environment) {
-  return [env.ACCESS_CODE, env.ACCESS_CODE_2].filter((code): code is string => Boolean(code));
+  // Keep ACCESS_CODE_2 compatible while existing deployments migrate to one variable.
+  return Array.from(new Set([env.ACCESS_CODE, env.ACCESS_CODE_2]
+    .flatMap((value) => (value || "").split(","))
+    .map((code) => code.trim())
+    .filter(Boolean)));
 }
 
 function equal(a: string, b: string) {
@@ -27,7 +31,7 @@ function identity(code: string, env: Environment) {
 
 export function issueSession(code: unknown, env: Environment = process.env, now = Date.now()) {
   if (!authConfigured(env) || typeof code !== "string" || code.length > 1024) return null;
-  const match = codes(env).find((candidate) => equal(candidate, code));
+  const match = codes(env).find((candidate) => equal(candidate, code.trim()));
   if (!match) return null;
   const session: Session = {
     subject: identity(match, env), expires: now + SESSION_SECONDS * 1000,
@@ -46,7 +50,7 @@ export function verifySession(token: string | undefined, env: Environment = proc
     if (!Number.isFinite(session.expires) || session.expires <= now || session.expires > now + SESSION_SECONDS * 1000) return null;
     const match = codes(env).find((code) => identity(code, env) === session.subject && sign(`code:${code}`, env) === session.version);
     if (!match) return null;
-    return { subject: session.subject, canMigrateLegacy: match === env.ACCESS_CODE };
+    return { subject: session.subject };
   } catch { return null; }
 }
 

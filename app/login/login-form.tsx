@@ -13,14 +13,17 @@ export default function LoginForm() {
     event.preventDefault();
     setLoading(true);
     setError("");
-    const response = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
-    });
-    if (response.ok) router.replace("/");
-    else setError("Kode akses salah. Silakan coba lagi.");
-    setLoading(false);
+    try {
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) { router.replace("/"); router.refresh(); }
+      else setError(data.error || `Login gagal (${response.status}).`);
+    } catch { setError("Tidak dapat terhubung. Periksa koneksi internet."); }
+    finally { setLoading(false); }
   }
 
   return (

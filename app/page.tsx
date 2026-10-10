@@ -1,11 +1,13 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import Chat from "./chat";
+import { SESSION_COOKIE, verifySession } from "../lib/auth";
 
 export default function Home() {
-  if (cookies().get("chat_session")?.value !== "authenticated") {
+  const session = verifySession(cookies().get(SESSION_COOKIE)?.value);
+  if (!session) {
     redirect("/login");
   }
 
-  return <Chat />;
+  return <Chat key={session.subject} storageId={session.subject} canMigrateLegacy={session.canMigrateLegacy} />;
 }

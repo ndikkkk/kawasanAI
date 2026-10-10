@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   if (body.model !== undefined && !isAvailableModel(body.model)) return NextResponse.json({ error: "Model tidak valid." }, { status: 400 });
   const model = body.model || (isAvailableModel(process.env.TOKEN_GATEWAY_MODEL) ? process.env.TOKEN_GATEWAY_MODEL : AVAILABLE_MODELS[0]);
   const preferences = body.preferences;
-  if (preferences !== undefined && (!preferences || typeof preferences.name !== "string" || preferences.name.length > 60 || typeof preferences.instructions !== "string" || preferences.instructions.length > 2000)) {
+  if (preferences !== undefined && (!preferences || typeof preferences.name !== "string" || preferences.name.length > 60 || typeof preferences.instructions !== "string")) {
     return NextResponse.json({ error: "Personalisasi tidak valid." }, { status: 400 });
   }
   if (!process.env.TOKEN_GATEWAY_BASE_URL || !process.env.TOKEN_GATEWAY_API_KEY) return NextResponse.json({ error: "Konfigurasi TokenGateway belum lengkap." }, { status: 503 });

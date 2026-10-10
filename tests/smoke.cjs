@@ -140,6 +140,13 @@ async function main() {
     assert.equal(calls[0].body.model, "gpt-5.4-mini");
     assert.match(calls[0].body.messages[0].content, /Dika/);
     assert.match(calls[0].body.messages[0].content, /Ringkas/);
+    const instructions = "Instruksi panjang dengan contoh. ".repeat(200);
+    const longPreferences = await post("/api/chat", { preferences: { name: "Dika", instructions }, messages: [{ role: "user", content: "Halo" }] }, cookie);
+    assert.equal(longPreferences.status, 200);
+    assert.ok(calls[1].body.messages[0].content.includes(instructions));
+    assert.equal((await post("/api/chat", { preferences: { name: "Dika", instructions: 123 }, messages: [{ role: "user", content: "Halo" }] }, cookie)).status, 400);
+    assert.equal((await post("/api/chat", { preferences: { name: "Dika", instructions: "x".repeat(3 * 1024 * 1024) }, messages: [{ role: "user", content: "Halo" }] }, cookie)).status, 413);
+    assert.equal(calls.length, 2);
     const logout = await post("/api/logout", {}, cookie);
     assert.equal(logout.status, 200);
     assert.match(logout.headers.get("set-cookie"), /1970/);

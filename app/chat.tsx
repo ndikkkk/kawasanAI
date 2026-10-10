@@ -6,6 +6,9 @@ import { AVAILABLE_MODELS } from "../lib/models";
 import { Attachment, ChatMessage, Conversation, fileError, MAX_FILE_TEXT, messageContent, newConversation, textFile } from "../lib/chat-store";
 import SettingsDialog from "./settings-dialog";
 import useSharedWorkspace from "./use-shared-workspace";
+import WorkspaceStatus from "./workspace-status";
+import AutoTextarea from "./auto-textarea";
+import useConfirmation from "./use-confirmation";
 
 function formatSize(size: number) {
   return size < 1024 * 1024 ? `${Math.ceil(size / 1024)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
@@ -17,7 +20,8 @@ export default function Chat() {
   const [busy, setBusy] = useState(false);
   const [reading, setReading] = useState(false);
   const [error, setError] = useState("");
-  const { workspace, setWorkspace, storageError, saving, pending, save, reload, exportHistory } = useSharedWorkspace(busy || reading);
+  const { confirm, confirmationDialog } = useConfirmation();
+  const { workspace, setWorkspace, storageError, saving, pending, save, reload, exportHistory } = useSharedWorkspace(busy || reading, confirm);
   const [notice, setNotice] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -60,8 +64,10 @@ export default function Chat() {
     updateChat(id, (chat) => ({ ...chat, title: title.trim().slice(0, 70) }));
     setEditingId(null);
   }
-  function deleteChat(chat: Conversation) {
-    if (sending.current || reading || !window.confirm(`Hapus "${chat.title}" untuk SEMUA pengguna? Riwayat ini tidak dapat dipulihkan.`)) return;
+  async function deleteChat(chat: Conversation) {
+    if (sending.current || reading || saving) return;
+    if (!await confirm({ title: "Hapus percakapan?", description: `“${chat.title}” akan dihapus dari riwayat bersama untuk semua pengguna. Percakapan ini tidak bisa dikembalikan.`, label: "Hapus percakapan", danger: true })) return;
+    if (sending.current || reading || saving) return;
     setWorkspace((current) => {
       if (!current) return current;
       const remaining = current.conversations.filter((item) => item.id !== chat.id);
@@ -123,15 +129,15 @@ export default function Chat() {
   }
 
   async function logout() {
-    if (pending && !window.confirm("Ada perubahan belum tersimpan. Keluar tanpa menyimpannya? Sebaiknya ekspor cadangan terlebih dahulu.")) return;
+    if (pending && !await confirm({ title: "Keluar tanpa menyimpan?", description: "Ada perubahan yang belum tersimpan. Batalkan dan ekspor cadangan jika ingin menyimpannya sebelum keluar.", label: "Tetap keluar", danger: true })) return;
     try {
-      const response = await fetch("/api/logout", { method: "POST" });
+      const response = await fetch("/api/logout", { method: "POST", signal: AbortSignal.timeout(15000) });
       if (!response.ok) throw new Error();
       window.location.href = "/login";
     } catch { setError("Gagal keluar. Periksa koneksi dan coba lagi."); }
   }
 
-  if (!workspace || !active) return <main className="login-shell"><div><p role="status">{storageError || "Memuat riwayat bersama Kawasan AI…"}</p>{storageError && <button onClick={reload}>Coba lagi</button>}<button onClick={logout}>Keluar</button></div></main>;
+  if (!workspace || !active) return <><WorkspaceStatus error={storageError} actionError={error} onRetry={reload} onLogout={logout} />{confirmationDialog}</>;
   const locked = busy || reading || saving;
 
   return <main className={`workspace ${workspace.collapsed ? "sidebar-collapsed" : ""} ${mobileOpen ? "mobile-sidebar-open" : ""}`}>
@@ -165,11 +171,12 @@ export default function Chat() {
         {notice && <p role="status" className="file-notice">{notice}</p>}
         {attachment && <div className="pending-file"><span>▧</span><strong>{attachment.name}</strong><small>{formatSize(attachment.size)}</small><button disabled={locked} aria-label="Hapus lampiran" onClick={() => { setAttachment(null); setNotice(""); }}>×</button></div>}
         <div className="composer-tools"><label className="model-picker"><span>Model</span><select value={active.model} disabled={locked} onChange={(event) => updateChat(active.id, (chat) => ({ ...chat, model: event.target.value }))}>{AVAILABLE_MODELS.map((model) => <option key={model}>{model}</option>)}</select></label><span className="model-hint">File maks. 20 MB</span></div>
-        <form className="composer" onSubmit={send}><button type="button" className="attach-button" disabled={locked} onClick={() => fileInput.current?.click()} aria-label="Lampirkan file maksimal 20 MB">＋</button><input ref={fileInput} type="file" hidden onChange={selectFile} /><textarea rows={2} maxLength={20000} aria-label="Pesan" value={input} onChange={(event) => setInput(event.target.value)} placeholder={reading ? "Membaca file…" : "Tulis idemu…"} disabled={locked} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} /><button className="send-button" aria-label="Kirim" disabled={locked || (!input.trim() && !attachment)}>↑</button></form>
+        <form className="composer" onSubmit={send}><button type="button" className="attach-button" disabled={locked} onClick={() => fileInput.current?.click()} aria-label="Lampirkan file maksimal 20 MB">＋</button><input ref={fileInput} type="file" hidden onChange={selectFile} /><AutoTextarea rows={2} maxLength={20000} aria-label="Pesan" value={input} onChange={(event) => setInput(event.target.value)} placeholder={reading ? "Membaca file…" : "Tulis idemu…"} disabled={locked} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} /><button className="send-button" aria-label="Kirim" disabled={locked || (!input.trim() && !attachment)}>↑</button></form>
         <p className="composer-note">Enter untuk kirim · Shift+Enter untuk baris baru. AI dapat membuat kesalahan.</p>
-        <p className="file-support">Teks/kode: isi dibaca hingga 100.000 karakter. Format lain: metadata saja, belum analisis isi.</p>
+        <p className="file-support">AI membaca 100.000 karakter pertama file teks/kode. PDF, gambar, Word, dan format lainnya baru mengirim info file, bukan isinya.</p>
       </section>
     </div>
     {settingsOpen && <SettingsDialog initial={workspace.preferences} onClose={() => setSettingsOpen(false)} onSave={(preferences) => setWorkspace((current) => current ? { ...current, preferences } : current)} />}
+    {confirmationDialog}
   </main>;
 }

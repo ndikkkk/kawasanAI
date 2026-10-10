@@ -2,15 +2,18 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import WorkspaceStatus from "../workspace-status";
 
 export default function LoginForm() {
   const router = useRouter();
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [entering, setEntering] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (loading || entering) return;
     setLoading(true);
     setError("");
     try {
@@ -20,11 +23,13 @@ export default function LoginForm() {
         body: JSON.stringify({ code }),
       });
       const data = await response.json().catch(() => ({}));
-      if (response.ok) { router.replace("/"); router.refresh(); }
+      if (response.ok) { setEntering(true); router.replace("/"); router.refresh(); }
       else setError(data.error || `Login gagal (${response.status}).`);
     } catch { setError("Tidak dapat terhubung. Periksa koneksi internet."); }
     finally { setLoading(false); }
   }
+
+  if (entering) return <WorkspaceStatus />;
 
   return (
     <main className="login-shell">

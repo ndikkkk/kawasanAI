@@ -3,10 +3,11 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 import { Workspace, newWorkspace } from "../lib/chat-store";
 import { HISTORY_BYTES, SharedHistory, validConversations, validRevision } from "../lib/shared-history";
+import type { Confirm } from "./use-confirmation";
 
 const PREFERENCES_KEY = "kawasan-ai-preferences";
 
-export default function useSharedWorkspace(busy: boolean) {
+export default function useSharedWorkspace(busy: boolean, confirm: Confirm) {
   const [workspace, render] = useState<Workspace | null>(null);
   const current = useRef<Workspace | null>(null);
   const revision = useRef("");
@@ -52,7 +53,7 @@ export default function useSharedWorkspace(busy: boolean) {
           if (raw) {
             const saved = JSON.parse(raw);
             if (typeof saved.name !== "string" || typeof saved.instructions !== "string") throw new Error();
-            previous.preferences = { name: saved.name.slice(0, 60), instructions: saved.instructions.slice(0, 2000) };
+            previous.preferences = { name: saved.name.slice(0, 60), instructions: saved.instructions };
             previous.collapsed = saved.collapsed === true;
           }
         } catch {
@@ -142,9 +143,9 @@ export default function useSharedWorkspace(busy: boolean) {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function reload() {
-    if (dirty.current && !window.confirm("Buang perubahan lokal yang belum tersimpan dan muat versi bersama? Ekspor cadangan terlebih dahulu jika diperlukan.")) return;
-    void load(true);
+  async function reload() {
+    if (dirty.current && !await confirm({ title: "Muat ulang riwayat?", description: "Perubahan lokal yang belum tersimpan akan diganti dengan riwayat bersama. Ekspor cadangan dulu jika masih diperlukan.", label: "Muat ulang", danger: true })) return;
+    await load(true);
   }
 
   return { workspace, setWorkspace, storageError: storageError || preferenceError, saving, pending, save, reload, exportHistory };

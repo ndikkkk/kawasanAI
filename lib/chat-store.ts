@@ -37,7 +37,7 @@ export function restoreWorkspace(raw: string): Workspace {
   return {
     conversations: value.conversations,
     activeId: value.conversations.some((chat: Conversation) => chat.id === value.activeId) ? value.activeId : value.conversations[0].id,
-    preferences: { name: value.preferences.name.slice(0, 60), instructions: value.preferences.instructions.slice(0, 2000) },
+    preferences: { name: value.preferences.name.slice(0, 60), instructions: value.preferences.instructions },
     collapsed: value.collapsed === true,
   };
 }

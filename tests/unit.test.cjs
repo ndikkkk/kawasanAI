@@ -10,6 +10,68 @@ require.extensions[".ts"] = (module, filename) => {
   module._compile(outputText, filename);
 };
 globalThis.crypto ??= require("node:crypto").webcrypto;
+require.extensions[".tsx"] = (module, filename) => {
+  const source = fs.readFileSync(filename, "utf8");
+  const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX } });
+  module._compile(outputText, filename);
+};
+const React = require("react");
+const { renderToStaticMarkup } = require("react-dom/server");
+const WorkspaceStatus = require("../app/workspace-status.tsx").default;
+const SettingsDialog = require("../app/settings-dialog.tsx").default;
+const { ConfirmationDialog } = require("../app/use-confirmation.tsx");
+const ThemeToggle = require("../app/theme-toggle.tsx").default;
+
+test("confirmation dialog labels destructive actions and escapes conversation text", () => {
+  const html = renderToStaticMarkup(React.createElement(ConfirmationDialog, {
+    options: { title: "Hapus percakapan?", description: '<script>chat</script> dihapus untuk semua pengguna.', label: "Hapus percakapan", danger: true },
+    onAnswer: () => {},
+  }));
+  assert.match(html, /<dialog/);
+  assert.match(html, /aria-labelledby="confirmation-title"/);
+  assert.match(html, /aria-describedby="confirmation-description"/);
+  assert.match(html, /&lt;script&gt;chat&lt;\/script&gt;/);
+  assert.match(html, /autofocus="">Batal/);
+  assert.match(html, /class="danger-button"/);
+});
+
+test("settings accepts personalization longer than 2000 characters", () => {
+  const instructions = "Gunakan contoh. ".repeat(500);
+  const html = renderToStaticMarkup(React.createElement(SettingsDialog, {
+    initial: { name: "Dika", instructions }, onSave: () => {}, onClose: () => {},
+  }));
+  assert.ok(html.includes(instructions));
+  assert.doesNotMatch(html, /<textarea[^>]*maxLength/i);
+});
+
+test("theme switch has an accessible action label", () => {
+  const html = renderToStaticMarkup(React.createElement(ThemeToggle));
+  assert.match(html, /aria-label="Gunakan tema gelap"/);
+  assert.match(html, /class="theme-toggle"/);
+});
+
+test("workspace loading renders branded status without recovery actions", () => {
+  const html = renderToStaticMarkup(React.createElement(WorkspaceStatus));
+  assert.match(html, /workspace-status-shell/);
+  assert.match(html, /role="status"/);
+  assert.match(html, /aria-busy="true"/);
+  assert.match(html, /Sedang menyiapkan percakapan/);
+  assert.doesNotMatch(html, /<button|<details/);
+});
+
+test("workspace recovery keeps technical details collapsed and actions accessible", () => {
+  const html = renderToStaticMarkup(React.createElement(WorkspaceStatus, {
+    error: "Database <unavailable>", actionError: "Gagal keluar.",
+    onRetry: async () => {}, onLogout: async () => {},
+  }));
+  assert.match(html, /aria-busy="false"/);
+  assert.match(html, /<details class="workspace-status-detail">/);
+  assert.match(html, /Database &lt;unavailable&gt;/);
+  assert.match(html, /Hubungkan kembali/);
+  assert.match(html, /Kembali ke login/);
+  assert.match(html, /role="alert">Gagal keluar/);
+});
+
 const auth = require("../lib/auth.ts");
 const store = require("../lib/chat-store.ts");
 const { allowLogin } = require("../lib/login-limit.ts");
@@ -97,6 +159,12 @@ test("migration retains old messages; malformed history is not silently accepted
   assert.throws(() => store.restoreWorkspace("not-json"));
   assert.throws(() => store.restoreWorkspace('{"conversations":[]}'));
   assert.throws(() => store.migrateLegacy('[{"role":"system","content":"bad"}]'));
+});
+
+test("restoring preferences does not truncate long personalization", () => {
+  const workspace = store.newWorkspace();
+  workspace.preferences.instructions = "Preferensi panjang. ".repeat(1000);
+  assert.equal(store.restoreWorkspace(JSON.stringify(workspace)).preferences.instructions, workspace.preferences.instructions);
 });
 
 test("missing active conversation falls back; metadata never pretends to include contents", () => {

@@ -19,8 +19,8 @@ export default function SettingsDialog({ initial, onSave, onClose }: { initial: 
       <label htmlFor="preferred-name">Mau dipanggil apa?</label>
       <input id="preferred-name" autoFocus maxLength={60} value={name} onChange={(event) => setName(event.target.value)} placeholder="Nama panggilan" />
       <label htmlFor="personal-instructions">Personalisasi jawaban</label>
-      <textarea id="personal-instructions" maxLength={2000} rows={6} value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Contoh: gunakan bahasa Indonesia santai, jelaskan bertahap, dan beri contoh kode." />
-      <small>{instructions.length}/2000 karakter</small>
+      <textarea id="personal-instructions" rows={6} value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Contoh: gunakan bahasa Indonesia santai, jelaskan bertahap, dan beri contoh kode." />
+      <small>{instructions.length.toLocaleString("id-ID")} karakter · Tanpa batas 2.000 karakter. Kapasitas browser dan konteks model tetap berlaku.</small>
       <p className="muted">Preferensi berlaku untuk pesan berikutnya dan dikirim ke provider AI. Nama dan preferensi disimpan hanya di browser ini. Riwayat chat dan isi lampiran teks dibagikan ke semua pengguna yang memiliki kode akses. Jangan masukkan kata sandi atau API key.</p>
       <div className="dialog-actions"><button type="button" onClick={() => dialog.current?.close()}>Batal</button><button className="primary-button">Simpan pengaturan</button></div>
     </form>

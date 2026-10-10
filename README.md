@@ -47,7 +47,10 @@ Backend Next.js memvalidasi session sebelum mengakses REST API Supabase lewat `f
 
 - Sidebar kiri: New Brainstorm, pilih riwayat, edit judul (ikon pensil), hapus dengan konfirmasi, dan pengaturan.
 - Desktop: sidebar lebar/kompak; mobile: tombol menu membuka drawer.
-- Pengaturan: nama panggilan (maksimal 60 karakter) dan personalisasi (2000 karakter), dikirim pada pesan berikutnya ke provider.
+- Pengaturan: nama panggilan (maksimal 60 karakter) dan personalisasi tanpa batas khusus 2.000 karakter, dikirim pada pesan berikutnya ke provider. Kapasitas penyimpanan browser, batas total request 3 MB, dan konteks model tetap berlaku; instruksi tidak dipotong diam-diam.
+- Tombol terang/gelap tersedia di semua halaman. Pilihan tema tersimpan lokal di browser; tanpa pilihan tersimpan, mengikuti tema perangkat.
+- Konfirmasi hapus, muat ulang perubahan lokal, dan keluar dengan perubahan belum tersimpan memakai dialog aplikasi. Peringatan saat menutup tab tetap mengikuti browser untuk melindungi perubahan belum tersimpan.
+- Kolom pesan membesar otomatis mengikuti isi tanpa pegangan resize manual.
 - Riwayat (termasuk teks lampiran) ada di Supabase dan dapat dibaca, diubah, serta dihapus semua pemegang kode. Bukan percakapan privat per pengguna; logout tidak menghapus history bersama. Nama panggilan, preferensi, dan sidebar disimpan lokal pada browser yang sama untuk semua kode; teks respons AI bisa menyebut nama/preferensi dan tetap terlihat bersama.
 - Autosave setelah perubahan berhenti selama 600 ms, ditunda selama AI merespons. Polling setiap 10 detik pada tab terlihat dan tidak ada perubahan lokal; bukan realtime streaming. Status belum tersimpan harus diselesaikan sebelum menutup tab. Bila gagal, gunakan **Coba simpan** atau **Ekspor cadangan** (JSON; belum ada UI impor).
 - Penyimpanan memakai satu snapshot dengan revision UUID dan conditional update atomik. Penulis kedua mendapat konflik HTTP 409, bukan menimpa perubahan orang lain. Ekspor perubahan lokal sebelum **Muat ulang**, lalu ulangi perubahan yang diperlukan. Perubahan bersamaan belum digabung otomatis.

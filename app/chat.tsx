@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { AVAILABLE_MODELS } from "../lib/models";
 
 type ChatMessage = { role: "user" | "assistant"; content: string; attachment?: { name: string; type: string; size: number } };
@@ -62,9 +63,9 @@ export default function Chat() {
   async function logout() { await fetch("/api/logout", { method: "POST" }); window.location.href = "/login"; }
 
   return <main className="app-shell">
-    <header className="topbar"><div className="top-brand"><span className="brand-dot">✦</span><span>ruang<span className="brand-accent">.</span>ai</span></div><div className="top-actions"><span className="status"><i /> online</span><button onClick={logout} className="logout-button">Keluar</button></div></header>
-    <section className="chat-layout"><div className="welcome"><p className="eyebrow">RUANG AI</p><h1>Apa yang ingin<br /><em>kamu jelajahi?</em></h1><p className="welcome-copy">Tanyakan apa saja, unggah file, dan biarkan ide berkembang.</p></div>
-      <div className="messages">{messages.length === 0 && <div className="empty-hint"><span>✦</span><p>Mulai percakapan baru di bawah.</p></div>}{messages.map((message, index) => <div className={`message-row ${message.role}`} key={`${index}-${message.content}`}><div className="message-avatar">{message.role === "assistant" ? "✦" : "Kamu"}</div><div className="message-bubble"><p>{message.content}</p>{message.attachment && <div className="attachment"><span>▧</span><div><strong>{message.attachment.name}</strong><small>{formatSize(message.attachment.size)}</small></div></div>}</div></div>)}{busy && <div className="message-row assistant"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}<div ref={bottom} /></div>
+    <header className="topbar"><div className="top-brand"><span className="brand-dot">✦</span><span>kawasan<span className="brand-accent">.</span>ai</span></div><div className="top-actions"><span className="status"><i /> online</span><button onClick={logout} className="logout-button">Keluar</button></div></header>
+    <section className="chat-layout"><div className="welcome"><p className="eyebrow">KAWASAN AI</p><h1>Apa yang ingin<br /><em>kamu jelajahi?</em></h1><p className="welcome-copy">Tanyakan apa saja, unggah file, dan biarkan ide berkembang.</p></div>
+      <div className="messages">{messages.length === 0 && <div className="empty-hint"><span>✦</span><p>Mulai percakapan baru di bawah.</p></div>}{messages.map((message, index) => <div className={`message-row ${message.role}`} key={`${index}-${message.content}`}><div className="message-avatar">{message.role === "assistant" ? <span role="img" aria-label="Asisten AI">✦</span> : <Image className="user-avatar" src="/avatars/user.svg" alt="Avatar pengirim" width={30} height={30} unoptimized />}</div><div className="message-bubble"><p>{message.content}</p>{message.attachment && <div className="attachment"><span>▧</span><div><strong>{message.attachment.name}</strong><small>{formatSize(message.attachment.size)}</small></div></div>}</div></div>)}{busy && <div className="message-row assistant"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}<div ref={bottom} /></div>
       {error && <p className="error-text chat-error">{error}</p>}
       {attachment && <div className="pending-file"><span>▧</span><strong>{attachment.name}</strong><small>{formatSize(attachment.size)}</small><button onClick={() => setAttachment(null)}>×</button></div>}
       <div className="composer-tools"><label className="model-picker"><span>Model</span><select value={model} onChange={(event) => setModel(event.target.value)} disabled={busy}>{AVAILABLE_MODELS.map((availableModel) => <option value={availableModel} key={availableModel}>{availableModel}</option>)}</select></label><span className="model-hint">pilih model untuk pesan berikutnya</span></div>

@@ -1,6 +1,8 @@
-# Ruang AI
+# Kawasan AI
 
 MVP chat AI pribadi dengan autentikasi kode akses dan lampiran file.
+
+Avatar pengirim menggunakan ilustrasi SVG lokal di `E:\web\webchatskripsi\public\avatars\user.svg`, tanpa layanan avatar eksternal. Kunci penyimpanan `ruang-ai-messages` tetap digunakan agar riwayat dari versi sebelumnya masih terbaca.
 
 ## Menjalankan lokal
 

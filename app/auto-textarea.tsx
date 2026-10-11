@@ -9,13 +9,8 @@ export default function AutoTextarea(props: TextareaHTMLAttributes<HTMLTextAreaE
     if (!element) return;
     function resize() {
       if (!element) return;
-      const scrollY = window.scrollY;
-      const prevHeight = element.style.height;
       element.style.height = "auto";
-      const newHeight = `${element.scrollHeight}px`;
-      element.style.height = newHeight;
-      // Restore scroll position — height reset above can cause page to jump.
-      if (prevHeight !== newHeight) window.scrollTo(0, scrollY);
+      element.style.height = `${element.scrollHeight}px`;
     }
     resize();
     let width = element.getBoundingClientRect().width;

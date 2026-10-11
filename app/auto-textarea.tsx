@@ -1,18 +1,21 @@
 "use client";
 
-import { TextareaHTMLAttributes, useEffect, useLayoutEffect, useRef } from "react";
+import { TextareaHTMLAttributes, useLayoutEffect, useRef } from "react";
 
 export default function AutoTextarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const isComposing = useRef(false);
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
     function resize() {
       if (!element) return;
+      const scrollY = window.scrollY;
+      const prevHeight = element.style.height;
       element.style.height = "auto";
-      element.style.height = `${element.scrollHeight}px`;
-      if (!isComposing.current) element.scrollIntoView({ block: "nearest", behavior: "instant" });
+      const newHeight = `${element.scrollHeight}px`;
+      element.style.height = newHeight;
+      // Restore scroll position — height reset above can cause page to jump.
+      if (prevHeight !== newHeight) window.scrollTo(0, scrollY);
     }
     resize();
     let width = element.getBoundingClientRect().width;
@@ -22,14 +25,5 @@ export default function AutoTextarea(props: TextareaHTMLAttributes<HTMLTextAreaE
     observer.observe(element);
     return () => observer.disconnect();
   }, [props.value]);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const start = () => { isComposing.current = true; };
-    const end = () => { isComposing.current = false; };
-    el.addEventListener("compositionstart", start);
-    el.addEventListener("compositionend", end);
-    return () => { el.removeEventListener("compositionstart", start); el.removeEventListener("compositionend", end); };
-  }, []);
   return <textarea {...props} ref={ref} />;
 }

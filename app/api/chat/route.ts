@@ -4,7 +4,7 @@ import { AVAILABLE_MODELS, isAvailableModel } from "../../../lib/models";
 import { sameOrigin, SESSION_COOKIE, verifySession } from "../../../lib/auth";
 import { BodyTooLarge, boundedBody } from "../../../lib/request-body";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(request: Request) {
   if (!verifySession(cookies().get(SESSION_COOKIE)?.value)) return NextResponse.json({ error: "Session berakhir. Silakan login kembali." }, { status: 401 });
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     const upstream = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.TOKEN_GATEWAY_API_KEY}` },
       body: JSON.stringify({ model, messages: [...(system ? [{ role: "system", content: system }] : []), ...body.messages.map((m: { role: string; content: string }) => ({ role: m.role, content: m.content }))], stream: false }),
-      signal: AbortSignal.timeout(55000), cache: "no-store",
+      signal: AbortSignal.timeout(115000), cache: "no-store",
     });
     const data = await upstream.json().catch(() => null);
     if (!upstream.ok) {

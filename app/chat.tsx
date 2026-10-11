@@ -130,7 +130,7 @@ export default function Chat() {
     updateChat(id, (chat) => ({ ...chat, messages: next, updatedAt: Date.now(), title: chat.messages.length === 0 && chat.title === "New Brainstorm" ? userText.slice(0, 70) : chat.title }));
     setInput(""); setAttachment(null); setSelectedPart(null); setNotice("");
     controller.current = new AbortController();
-    const timer = window.setTimeout(() => controller.current?.abort(), 65000);
+    const timer = window.setTimeout(() => controller.current?.abort(), 125000);
     try {
       const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: controller.current.signal });
       const data = await response.json().catch(() => ({}));

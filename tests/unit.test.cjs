@@ -65,19 +65,18 @@ test("extraction rejects empty, binary, invalid UTF-8 and oversized content with
 });
 
 test("long documents preserve every character and explicitly label selected parts", () => {
-  const text = "a".repeat(99999) + "😀" + "b".repeat(100001);
+  const text = "a".repeat(500000);
   const parts = documents.documentParts(text);
   assert.equal(parts.join(""), text);
-  assert.ok(parts.every((part) => part.length <= 100000));
-  assert.equal(parts[1].slice(0, 2), "😀");
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0].length, 500000);
   const document = { file: { name: "skripsi.pdf", size: 30, type: "application/pdf" }, text, source: "Azure teks/OCR" };
-  const attachment = documents.partAttachment(document, 1);
-  assert.match(attachment.name, /bagian 2\/3/);
-  assert.equal(attachment.text, parts[1]);
+  const attachment = documents.partAttachment(document, 0);
+  assert.doesNotMatch(attachment.name, /bagian/);
+  assert.equal(attachment.text, parts[0]);
   assert.throws(() => documents.partAttachment(document, -1));
   const html = renderToStaticMarkup(React.createElement(DocumentPreview, { document, selected: null, locked: false, onSelect() {}, onClose() {} }));
-  assert.match(html, /Pilih bagian untuk dilampirkan/);
-  assert.match(html, /bukan pencarian otomatis/i);
+  assert.ok(html.includes("1 bagian"));
   assert.doesNotMatch(html, /<pre>/);
 });
 

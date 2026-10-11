@@ -1,7 +1,7 @@
 import { AVAILABLE_MODELS, isAvailableModel } from "./models";
 
 export const MAX_FILE_SIZE = 20 * 1024 * 1024;
-export const MAX_FILE_TEXT = 100000;
+export const MAX_FILE_TEXT = 500000;
 export type Attachment = { name: string; size: number; type: string; text?: string };
 export type ChatMessage = { role: "user" | "assistant"; content: string; attachment?: Attachment };
 export type Conversation = { id: string; title: string; updatedAt: number; model: string; messages: ChatMessage[] };

@@ -110,7 +110,7 @@ module.exports = async function browserTest(base, cookie, executable) {
     await command("Emulation.clearDeviceMetricsOverride");
     console.log("PASS browser: centered compact composer, multiline growth and shrink on desktop and mobile");
     assert.ok((await evaluate('document.querySelector("link[rel=icon]").href')).includes("icon.svg"));
-    const longText = "a".repeat(100000) + "SECOND_PART_SENTINEL";
+    const longText = "a".repeat(500000) + "SECOND_PART_SENTINEL";
     await upload("long-thesis.txt", longText);
     await waitFor(async () => (await text()).includes("2 bagian"), "long file split");
     assert.equal(await evaluate('document.querySelector(".pending-file") === null'), true);

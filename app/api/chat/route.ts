@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   try { body = JSON.parse(Buffer.from(await boundedBody(request, 3 * 1024 * 1024)).toString("utf8")); }
   catch (error) { return NextResponse.json({ error: error instanceof BodyTooLarge ? "Konteks terlalu besar. Mulai brainstorm baru atau kurangi lampiran." : "Request tidak valid." }, { status: error instanceof BodyTooLarge ? 413 : 400 }); }
   if (!Array.isArray(body?.messages) || !body.messages.length || body.messages.length > 200 ||
-    !body.messages.every((m: { role?: unknown; content?: unknown } | null) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length <= 150000)) {
+    !body.messages.every((m: { role?: unknown; content?: unknown } | null) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length <= 500000)) {
     return NextResponse.json({ error: "Pesan tidak valid atau terlalu panjang (maksimal 200 pesan)." }, { status: 400 });
   }
   if (body.model !== undefined && !isAvailableModel(body.model)) return NextResponse.json({ error: "Model tidak valid." }, { status: 400 });

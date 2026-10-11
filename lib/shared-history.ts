@@ -11,7 +11,7 @@ export function validConversations(value: unknown): value is Conversation[] {
     chat && validRevision(chat.id) && typeof chat.title === "string" && chat.title.trim().length > 0 && chat.title.length <= 70 &&
     Number.isSafeInteger(chat.updatedAt) && chat.updatedAt >= 0 && isAvailableModel(chat.model) &&
     validMessages(chat.messages) && chat.messages.length <= 200 && chat.messages.every((message: ChatMessage) =>
-      message.content.length <= 150000 && (!message.attachment || (
+      message.content.length <= 500000 && (!message.attachment || (
         message.attachment.name.length <= 255 && message.attachment.type.length <= 255 &&
         (message.attachment.text === undefined || message.attachment.text.length <= MAX_FILE_TEXT))))) &&
     new Set(value.map((chat) => chat.id)).size === value.length;

@@ -135,7 +135,7 @@ export default function Chat() {
       const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: controller.current.signal });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || typeof data.content !== "string") throw new Error(data.error || `Chat gagal (${response.status}).`);
-      if (data.content.length > 150000) throw new Error("Jawaban terlalu panjang untuk disimpan. Coba minta jawaban lebih ringkas.");
+      if (data.content.length > 500000) throw new Error("Jawaban terlalu panjang untuk disimpan. Coba minta jawaban lebih ringkas.");
       updateChat(id, (chat) => ({ ...chat, messages: [...chat.messages, { role: "assistant", content: data.content }], updatedAt: Date.now() }));
     } catch (reason) {
       // Roll back this failed turn so retrying does not duplicate the prompt.
@@ -193,11 +193,11 @@ export default function Chat() {
         <form className="composer" onSubmit={send}>
           <button type="button" className="attach-button" disabled={locked} onClick={() => fileInput.current?.click()} aria-label="Lampirkan file maksimal 20 MB"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" /></svg></button>
           <input ref={fileInput} type="file" hidden onChange={selectFile} />
-          <AutoTextarea rows={1} maxLength={20000} aria-label="Pesan" value={input} onChange={(event) => setInput(event.target.value)} placeholder={reading ? "Membaca file…" : "Tulis idemu…"} disabled={locked} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+          <AutoTextarea rows={1} maxLength={500000} aria-label="Pesan" value={input} onChange={(event) => setInput(event.target.value)} placeholder={reading ? "Membaca file…" : "Tulis idemu…"} disabled={locked} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
           <button className="send-button" aria-label="Kirim" disabled={locked || (!input.trim() && !attachment)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5m-6 6 6-6 6 6" /></svg></button>
         </form>
         <p className="composer-note">Enter untuk kirim · Shift+Enter untuk baris baru. AI dapat membuat kesalahan.</p>
-        <p className="file-support">PDF diproses lokal dengan OpenDataLoader atau Azure sesuai konfigurasi. DOCX melalui Azure. Teks/kode UTF-8 dibaca di browser. Maks. 500.000 karakter hasil ekstraksi, dipilih per bagian maks. 100.000 karakter; tidak dipotong diam-diam. Batas konteks model dan request 3 MB tetap berlaku. Gambar/audio/DOC lama belum didukung.</p>
+        <p className="file-support">PDF diproses lokal dengan OpenDataLoader atau Azure sesuai konfigurasi. DOCX melalui Azure. Teks/kode UTF-8 dibaca di browser. Maks. 500.000 karakter hasil ekstraksi, dipilih per bagian maks. 500.000 karakter; tidak dipotong diam-diam. Batas konteks model dan request 3 MB tetap berlaku. Gambar/audio/DOC lama belum didukung.</p>
       </section>
     </div>
     {settingsOpen && <SettingsDialog initial={workspace.preferences} onClose={() => setSettingsOpen(false)} onSave={(preferences) => setWorkspace((current) => current ? { ...current, preferences } : current)} />}

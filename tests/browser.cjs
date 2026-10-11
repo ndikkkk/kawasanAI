@@ -71,6 +71,44 @@ module.exports = async function browserTest(base, cookie, executable) {
     await command("Fetch.enable", { patterns: [{ urlPattern: "*/api/documents*", requestStage: "Request" }] });
     await command("Page.navigate", { url: base });
     await waitFor(async () => (await text()).includes("Riwayat bersama dimuat"), "workspace loaded");
+    async function checkComposer(multiline = false) {
+      const layout = await evaluate(`(() => {
+        const form = document.querySelector('.composer');
+        const textarea = form.querySelector('textarea');
+        const rect = (element) => { const r = element.getBoundingClientRect(); return { height: r.height, center: r.y + r.height / 2 }; };
+        const style = getComputedStyle(textarea);
+        return { form: rect(form), controls: [...form.querySelectorAll('button, textarea')].map(rect),
+          paddingTop: parseFloat(style.paddingTop), paddingBottom: parseFloat(style.paddingBottom),
+          lineHeight: parseFloat(style.lineHeight), overflow: textarea.scrollHeight > textarea.clientHeight,
+          horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth };
+      })()`);
+      for (const control of layout.controls) assert.ok(Math.abs(control.center - layout.form.center) <= 1, "Composer controls vertically centered");
+      assert.equal(layout.controls[0].height, 38);
+      assert.equal(layout.controls[2].height, 38);
+      assert.equal(layout.paddingTop, layout.paddingBottom, "Symmetric text padding");
+      if (multiline) assert.ok(layout.form.height > 52, "Composer grows for multiple lines");
+      else {
+        assert.equal(layout.form.height, 52, "Compact height follows plus button plus padding and border");
+        assert.equal(layout.controls[1].height, layout.lineHeight + layout.paddingTop + layout.paddingBottom, "Single text line vertically centered");
+      }
+      assert.equal(layout.overflow, false, "Textarea content is not clipped");
+      assert.equal(layout.horizontalOverflow, false, "No horizontal overflow");
+    }
+    for (const viewport of [{ width: 1280, height: 900, mobile: false }, { width: 390, height: 844, mobile: true }]) {
+      await command("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1 });
+      await checkComposer();
+      await evaluate('document.querySelector(".composer textarea").focus()');
+      await command("Input.insertText", { text: "Baris pertama\nBaris kedua\nBaris ketiga" });
+      await waitFor(() => evaluate('document.querySelector(".composer textarea").clientHeight > 38'), "multiline growth");
+      await checkComposer(true);
+      await evaluate('document.querySelector(".composer textarea").select()');
+      await command("Input.dispatchKeyEvent", { type: "keyDown", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
+      await command("Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
+      await waitFor(() => evaluate('document.querySelector(".composer textarea").value === "" && document.querySelector(".composer textarea").clientHeight === 38'), "compact height restored");
+      await checkComposer();
+    }
+    await command("Emulation.clearDeviceMetricsOverride");
+    console.log("PASS browser: centered compact composer, multiline growth and shrink on desktop and mobile");
     assert.ok((await evaluate('document.querySelector("link[rel=icon]").href')).includes("icon.svg"));
     const longText = "a".repeat(100000) + "SECOND_PART_SENTINEL";
     await upload("long-thesis.txt", longText);

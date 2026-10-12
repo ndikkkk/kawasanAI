@@ -119,6 +119,30 @@ module.exports = async function browserTest(base, cookie, executable) {
     await waitFor(async () => (await text()).includes("Halo Dika, ini respons mock."), "AI response");
     await waitFor(() => evaluate('!document.querySelector(".attach-button").disabled'), "autosave complete");
     assert.equal(await evaluate('document.querySelector(".conversation-bar").children.length'), 1, "Title bar has only the title, no spinner");
+    // Native scrollbar arrows are not DOM children. Check overflow and long-title layout too.
+    for (const viewport of [{ width: 1280, height: 900, mobile: false }, { width: 320, height: 640, mobile: true }]) {
+      await command("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1 });
+      const heading = await evaluate(`(() => {
+        const element = document.querySelector('.conversation-heading');
+        const original = element.textContent;
+        element.textContent = 'W'.repeat(70);
+        const style = getComputedStyle(element);
+        const result = {
+          overflowY: style.overflowY, maxHeight: style.maxHeight,
+          height: element.clientHeight, contentHeight: element.scrollHeight,
+          horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
+          composerBottom: document.querySelector('.composer').getBoundingClientRect().bottom,
+          viewportHeight: innerHeight,
+        };
+        element.textContent = original;
+        return result;
+      })()`);
+      assert.equal(heading.overflowY, "visible", "Title has no native scrollbar or stepper-like arrows");
+      assert.equal(heading.maxHeight, "none", "Long title can wrap without a height cap");
+      assert.ok(heading.contentHeight <= heading.height + 1, "Full 70-character title fits without internal scrolling");
+      assert.equal(heading.horizontalOverflow, false, "Long title does not overflow horizontally");
+      assert.ok(heading.composerBottom < heading.viewportHeight, "Composer stays visible with long title");
+    }
     await evaluate(`(() => {
       window.originalClipboard = navigator.clipboard.writeText.bind(navigator.clipboard);
       navigator.clipboard.writeText = async (value) => { window.copiedAnswer = value; };

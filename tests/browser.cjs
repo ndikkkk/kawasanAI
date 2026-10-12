@@ -118,6 +118,52 @@ module.exports = async function browserTest(base, cookie, executable) {
     await evaluate('document.querySelector("button[aria-label=Kirim]").click()');
     await waitFor(async () => (await text()).includes("Halo Dika, ini respons mock."), "AI response");
     await waitFor(() => evaluate('!document.querySelector(".attach-button").disabled'), "autosave complete");
+    assert.equal(await evaluate('document.querySelector(".conversation-bar").children.length'), 1, "Title bar has only the title, no spinner");
+    await evaluate(`(() => {
+      window.originalClipboard = navigator.clipboard.writeText.bind(navigator.clipboard);
+      navigator.clipboard.writeText = async (value) => { window.copiedAnswer = value; };
+      document.querySelector('.assistant .copy-answer').click();
+    })()`);
+    await waitFor(async () => (await text()).includes("Jawaban berhasil disalin"), "copy success");
+    assert.equal(await evaluate('window.copiedAnswer'), "Halo Dika, ini respons mock.");
+    assert.equal(await evaluate('document.querySelectorAll(".user .copy-answer").length'), 0);
+    await evaluate(`navigator.clipboard.writeText = async () => { throw new Error('denied'); }; document.querySelector('.assistant .copy-answer').click()`);
+    await waitFor(async () => (await text()).includes("Gagal menyalin"), "clipboard denial handled");
+    await evaluate('navigator.clipboard.writeText = window.originalClipboard');
+
+    // A slow, long response exercises follow mode while tokens are still arriving.
+    await evaluate(`(() => {
+      const original = window.fetch;
+      window.fetch = async (url, options) => {
+        if (url !== '/api/chat') return original(url, options);
+        window.fetch = original;
+        const encoder = new TextEncoder();
+        let count = 0;
+        return new Response(new ReadableStream({ start(controller) {
+          const timer = setInterval(() => {
+            const content = 'Paragraf jawaban AI untuk menguji scroll otomatis. '.repeat(8) + '\\n\\n';
+            controller.enqueue(encoder.encode('data: ' + JSON.stringify({ choices: [{ delta: { content } }] }) + '\\n\\n'));
+            if (++count === 30) {
+              clearInterval(timer);
+              controller.enqueue(encoder.encode('data: {"choices":[{"finish_reason":"stop"}]}\\n\\ndata: [DONE]\\n\\n'));
+              controller.close();
+            }
+          }, 100);
+        } }), { headers: { 'content-type': 'text/event-stream' } });
+      };
+      document.querySelector('.composer textarea').focus();
+    })()`);
+    await command("Input.insertText", { text: "Uji mengikuti jawaban panjang" });
+    await evaluate('document.querySelector(".composer").requestSubmit()');
+    await waitFor(() => evaluate('document.querySelector(".assistant:last-child .message-bubble")?.textContent.length > 2500'), "long stream visible");
+    await waitFor(() => evaluate('(() => { const s = document.querySelector(".chat-scroll"); return s.scrollHeight - s.scrollTop - s.clientHeight < 3; })()'), "following live stream");
+    await evaluate('document.querySelector(".chat-scroll").scrollTop = 0');
+    await waitFor(() => evaluate('Boolean(document.querySelector(".latest-message"))'), "manual scroll pauses follow");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(await evaluate('document.querySelector(".chat-scroll").scrollTop'), 0, "Stream does not pull reader away from older messages");
+    await evaluate('document.querySelector(".latest-message").click()');
+    await waitFor(() => evaluate('!document.querySelector(".attach-button").disabled'), "long stream and autosave completed");
+    await waitFor(() => evaluate('(() => { const s = document.querySelector(".chat-scroll"); return s.scrollHeight - s.scrollTop - s.clientHeight < 3; })()'), "follow resumes and reaches final answer");
     for (const viewport of [{ width: 1280, height: 900, mobile: false }, { width: 390, height: 844, mobile: true }]) {
       await command("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1 });
       const header = await evaluate(`(() => {
@@ -125,16 +171,29 @@ module.exports = async function browserTest(base, cookie, executable) {
         scroller.scrollTop = 0;
         const top = document.querySelector('.topbar').getBoundingClientRect().top;
         const title = document.querySelector('.conversation-heading').getBoundingClientRect().top;
+        const composer = document.querySelector('.composer').getBoundingClientRect();
         scroller.scrollTop = scroller.scrollHeight;
         return { top, title, afterTop: document.querySelector('.topbar').getBoundingClientRect().top,
+          composerTop: composer.top, composerBottom: composer.bottom,
+          afterComposerTop: document.querySelector('.composer').getBoundingClientRect().top,
           afterTitle: document.querySelector('.conversation-heading').getBoundingClientRect().top,
           scrolled: scroller.scrollTop, bodyHeight: document.documentElement.scrollHeight, height: window.innerHeight };
       })()`);
       assert.ok(header.scrolled > 0, "Chat content scrolls");
       assert.equal(header.top, header.afterTop, "App header stays fixed");
       assert.equal(header.title, header.afterTitle, "Conversation title stays fixed");
-      assert.ok(header.bodyHeight <= header.height + 1, "Only chat area scrolls");
+      assert.equal(header.composerTop, header.afterComposerTop, "Composer stays fixed while messages scroll");
+      assert.ok(header.composerTop > 0 && header.composerBottom < header.height, "Composer remains visible");
+      assert.ok(header.bodyHeight <= header.height + 1, `Only chat area scrolls: ${JSON.stringify(header)}`);
     }
+    await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 500, mobile: true, deviceScaleFactor: 1 });
+    await evaluate('document.querySelector(".composer textarea").focus()');
+    await command("Input.insertText", { text: "Baris panjang\n".repeat(100) });
+    await waitFor(() => evaluate('document.querySelector(".composer textarea").scrollHeight > document.querySelector(".composer textarea").clientHeight'), "long input scrolls internally");
+    assert.ok(await evaluate('document.querySelector(".composer").getBoundingClientRect().bottom < innerHeight'), "Long input does not push send button below viewport");
+    await evaluate('document.querySelector(".composer textarea").select()');
+    await command("Input.dispatchKeyEvent", { type: "keyDown", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
+    await command("Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
     assert.ok((await text()).includes("long-thesis.txt"));
     await upload("unsupported.png", Buffer.from([1, 2, 3]));
     await waitFor(async () => (await text()).includes("Format belum didukung"), "unsupported error");

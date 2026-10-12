@@ -2,6 +2,19 @@
 
 Chat pribadi berbasis Next.js dengan dropdown model TokenGateway, avatar lokal, sidebar yang bisa diciutkan, New Brainstorm, ubah/hapus judul riwayat, dan personalisasi nama serta gaya jawaban.
 
+### Perilaku chat
+
+- Kolom pesan tetap di bawah viewport; hanya area percakapan yang bergulir. Input panjang memiliki scroll internal agar tombol kirim tetap terlihat.
+- Tampilan mengikuti jawaban streaming ketika berada di bawah. Scroll ke atas menghentikan follow sementara; tombol **Pesan terbaru** mengaktifkannya kembali. Mengirim pesan atau berpindah percakapan juga kembali ke bawah.
+- Jawaban AI yang selesai memiliki tombol **Salin**, menyalin teks asli beserta sintaks Markdown. Clipboard membutuhkan izin browser dan secure context (HTTPS atau localhost); kegagalan ditampilkan, bukan dianggap berhasil.
+- Bar judul hanya berisi judul percakapan, tanpa spinner. Indikator AI sedang merespons tetap ada di area pesan.
+
+### Evaluasi FreeConvert (belum diintegrasikan)
+
+FreeConvert menyediakan konversi [PDF ke TXT](https://www.freeconvert.com/pdf-to-txt) dan [DOCX ke TXT](https://www.freeconvert.com/docx-to-txt), serta [API resmi](https://www.freeconvert.com/api/v1/). Halaman [harga](https://www.freeconvert.com/pricing) saat diperiksa menyebut 20 conversion minutes/hari gratis untuk web/API, maksimal 5 menit/file pada penggunaan gratis; API memerlukan akun. Kuota/harga dapat berubah. Ini bukan konversi gratis tanpa batas atau jaminan jumlah file tertentu.
+
+Layak diuji sebagai alternatif untuk dokumen berbasis teks pada hosting tanpa Java. Dukungan Markdown dan OCR PDF scan pada jalur PDF-ke-TXT belum terverifikasi; jangan menganggapnya pengganti OCR Azure. TXT juga kehilangan struktur tabel/format. Sebelum integrasi, verifikasi pasangan format pada API/Job Builder dan uji dokumen multi-halaman nyata, scan, tabel, serta rumus. File akan dikirim ke pihak ketiga; FreeConvert menyatakan penghapusan otomatis setelah 8 jam. Integrasi perlu secret server, persetujuan upload, job/polling terautentikasi, validasi URL unduhan, batas ukuran/kuota dan error yang eksplisit. Parser aktif belum diubah.
+
 ## Menjalankan lokal
 
 1. Salin `E:\web\webchatskripsi\.env.example` ke `E:\web\webchatskripsi\.env.local`.

@@ -16,6 +16,8 @@ import MarkdownContent from "./markdown-content";
 import useConfirmation from "./use-confirmation";
 import useSessionPresence from "./use-session-presence";
 import { readAiResponse } from "../lib/ai-stream";
+import CopyAnswer from "./copy-answer";
+import useChatScroll from "./use-chat-scroll";
 
 function formatSize(size: number) {
   return size < 1024 * 1024 ? `${Math.ceil(size / 1024)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
@@ -40,13 +42,12 @@ export default function Chat() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
-  const bottom = useRef<HTMLDivElement>(null);
   const sending = useRef(false);
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => { controller.current?.abort(); extraction.current?.abort(); }, []);
 
   const active = workspace?.conversations.find((chat) => chat.id === workspace.activeId);
-  useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [active?.id, active?.messages.length, busy]);
+  const { scrollRef, contentRef, away, latest, onScroll } = useChatScroll(active?.id);
   useEffect(() => {
     function escape(event: KeyboardEvent) { if (event.key === "Escape") setMobileOpen(false); }
     window.addEventListener("keydown", escape);
@@ -130,6 +131,7 @@ export default function Chat() {
     const projected = workspace.conversations.map((chat) => chat.id === active.id ? { ...chat, messages: next } : chat);
     // Reserve room for an assistant response (up to 150,000 characters with JSON escaping).
     if (new Blob([JSON.stringify({ revision: "0".repeat(36), conversations: projected })]).size > HISTORY_BYTES - 950000) { setError("Riwayat bersama hampir penuh. Ekspor lalu hapus percakapan lama sebelum menambah dokumen; ruang disisihkan untuk jawaban AI."); return; }
+    latest();
     sending.current = true; setBusy(true); setError(""); setStreamed("");
     const id = active.id;
     updateChat(id, (chat) => ({ ...chat, messages: next, updatedAt: Date.now(), title: chat.messages.length === 0 && chat.title === "New Brainstorm" ? userText.slice(0, 70) : chat.title }));
@@ -180,16 +182,15 @@ export default function Chat() {
     <div className="app-shell workspace-main">
       <header className="topbar"><button className="mobile-toggle icon-button" aria-label="Buka sidebar" aria-controls="chat-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}>☰</button><div className="top-brand"><span className="brand-dot">✦</span><span>kawasan<span className="brand-accent">.</span>ai</span></div><div className="top-actions"><button onClick={logout} disabled={locked} className="logout-button">Keluar</button></div></header>
       <div className="conversation-bar"><h1 className="conversation-heading">{active.title}</h1></div>
-      <div className="chat-scroll">
-      <section className="chat-layout">
+      <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
+      <section className="chat-layout" ref={contentRef}>
         {active.messages.length === 0 && <div className="welcome"><p className="eyebrow">KAWASAN AI{workspace.preferences.name ? ` · Halo, ${workspace.preferences.name}` : ""}</p><h2>Apa yang ingin<br /><em>kamu jelajahi?</em></h2><p className="welcome-copy">Mulai brainstorm, unggah file, dan biarkan ide berkembang.</p></div>}
         {storageError && <p role="alert" className="error-text">{storageError}</p>}
         <div className="history-sync"><span role="status">{saving ? "Menyimpan…" : pending ? "Perubahan belum tersimpan" : "Riwayat bersama dimuat"}</span><button disabled={locked || !pending} onClick={() => void save()}>Coba simpan</button><button disabled={locked} onClick={reload}>Muat ulang</button><button onClick={exportHistory}>Ekspor cadangan</button></div>
         <div className="messages" role="log" aria-label="Pesan chat" aria-live="polite">
-          {active.messages.map((message, index) => <div className={`message-row ${message.role}`} key={`${active.id}-${index}`}><div className="message-avatar">{message.role === "assistant" ? <span role="img" aria-label="Asisten AI">✦</span> : <Image className="user-avatar" src="/avatars/user.svg" alt={workspace.preferences.name ? `Avatar ${workspace.preferences.name}` : "Avatar pengirim"} width={30} height={30} unoptimized />}</div><div className="message-bubble"><MarkdownContent content={message.content} />{message.attachment && <div className="attachment"><span>▧</span><div><strong>{message.attachment.name}</strong><small>{formatSize(message.attachment.size)} · {message.attachment.text === undefined ? "Metadata saja" : "Konteks teks"}</small></div></div>}</div></div>)}
+          {active.messages.map((message, index) => <div className={`message-row ${message.role}`} key={`${active.id}-${index}`}><div className="message-avatar">{message.role === "assistant" ? <span role="img" aria-label="Asisten AI">✦</span> : <Image className="user-avatar" src="/avatars/user.svg" alt={workspace.preferences.name ? `Avatar ${workspace.preferences.name}` : "Avatar pengirim"} width={30} height={30} unoptimized />}</div><div className="message-bubble"><MarkdownContent content={message.content} />{message.role === "assistant" && <CopyAnswer content={message.content} />}{message.attachment && <div className="attachment"><span>▧</span><div><strong>{message.attachment.name}</strong><small>{formatSize(message.attachment.size)} · {message.attachment.text === undefined ? "Metadata saja" : "Konteks teks"}</small></div></div>}</div></div>)}
           {streamed && <div className="message-row assistant"><div className="message-avatar">✦</div><div className="message-bubble"><small>{busy ? "Sedang menjawab…" : "Jawaban sementara — belum lengkap dan belum disimpan"}</small><MarkdownContent content={streamed} /></div></div>}
           {busy && !streamed && <div className="message-row assistant"><div className="message-avatar">✦</div><div className="message-bubble typing" aria-label="AI sedang merespons"><i /><i /><i /></div></div>}
-          <div ref={bottom} />
         </div>
         {error && <p role="alert" className="error-text chat-error">{error}</p>}
         {busy && <button type="button" className="document-cancel" onClick={() => controller.current?.abort()}>Hentikan respons</button>}
@@ -197,6 +198,11 @@ export default function Chat() {
         {reading && <button type="button" className="document-cancel" onClick={() => extraction.current?.abort()}>Batalkan pembacaan</button>}
         {document && <DocumentPreview document={document} selected={selectedPart} locked={locked} onSelect={(index) => { setSelectedPart(index); setAttachment(partAttachment(document, index)); setNotice(`Bagian ${index + 1} siap dikirim. Bagian lain tidak otomatis dibaca AI.`); }} onClose={() => { setDocument(null); setSelectedPart(null); setAttachment(null); setNotice(""); }} />}
         {attachment && <div className="pending-file"><span>▧</span><strong>{attachment.name}</strong><small>{formatSize(attachment.size)}</small><button disabled={locked} aria-label="Hapus lampiran" onClick={() => { setAttachment(null); setNotice(""); }}>×</button></div>}
+      </section>
+      </div>
+      <footer className="composer-dock">
+        {away && <button type="button" className="latest-message" onClick={latest}>↓ Pesan terbaru</button>}
+        <div className="composer-inner">
         <div className="composer-tools"><label className="model-picker"><span>Model</span><select value={active.model} disabled={locked} onChange={(event) => updateChat(active.id, (chat) => ({ ...chat, model: event.target.value }))}>{AVAILABLE_MODELS.map((model) => <option key={model}>{model}</option>)}</select></label><span className="model-hint">PDF/DOCX 4 MB · Teks 20 MB</span></div>
         <form className="composer" onSubmit={send}>
           <button type="button" className="attach-button" disabled={locked} onClick={() => fileInput.current?.click()} aria-label="Lampirkan file maksimal 20 MB"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" /></svg></button>
@@ -205,9 +211,9 @@ export default function Chat() {
           <button className="send-button" aria-label="Kirim" disabled={locked || (!input.trim() && !attachment)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5m-6 6 6-6 6 6" /></svg></button>
         </form>
         <p className="composer-note">Enter untuk kirim · Shift+Enter untuk baris baru. AI dapat membuat kesalahan.</p>
-        <p className="file-support">PDF diproses lokal dengan OpenDataLoader atau Azure sesuai konfigurasi. DOCX melalui Azure. Teks/kode UTF-8 dibaca di browser. Maks. 500.000 karakter hasil ekstraksi, dipilih per bagian maks. 500.000 karakter; tidak dipotong diam-diam. Batas konteks model dan request 3 MB tetap berlaku. Gambar/audio/DOC lama belum didukung.</p>
-      </section>
-      </div>
+        <details className="file-support"><summary>Format dan batas file</summary><p>PDF diproses lokal dengan OpenDataLoader atau Azure sesuai konfigurasi. DOCX melalui Azure. Teks/kode UTF-8 dibaca di browser. Maks. 500.000 karakter hasil ekstraksi, dipilih per bagian maks. 500.000 karakter; tidak dipotong diam-diam. Batas konteks model dan request 3 MB tetap berlaku. Gambar/audio/DOC lama belum didukung.</p></details>
+        </div>
+      </footer>
     </div>
     {settingsOpen && <SettingsDialog initial={workspace.preferences} onClose={() => setSettingsOpen(false)} onSave={(preferences) => setWorkspace((current) => current ? { ...current, preferences } : current)} />}
     {confirmationDialog}

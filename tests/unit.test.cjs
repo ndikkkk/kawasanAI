@@ -21,6 +21,7 @@ const WorkspaceStatus = require("../app/workspace-status.tsx").default;
 const SettingsDialog = require("../app/settings-dialog.tsx").default;
 const { ConfirmationDialog } = require("../app/use-confirmation.tsx");
 const ThemeToggle = require("../app/theme-toggle.tsx").default;
+const CopyAnswer = require("../app/copy-answer.tsx").default;
 const documents = require("../lib/document-text.ts");
 const documentService = require("../lib/document-service.ts");
 const { readDocument } = require("../lib/read-document.ts");
@@ -38,6 +39,14 @@ function streamResponse(text, byteSize = 7) {
     controller.enqueue(bytes.slice(offset, offset += byteSize));
   } }), { headers: { "content-type": "text/event-stream" } });
 }
+
+test("AI copy action is accessible and does not embed raw answer in HTML attributes", () => {
+  const markup = renderToStaticMarkup(React.createElement(CopyAnswer, { content: '<script>alert("test")</script>' }));
+  assert.match(markup, /aria-label="Salin jawaban AI"/);
+  assert.match(markup, /type="button"/);
+  assert.match(markup, /role="status"/);
+  assert.doesNotMatch(markup, /<script>|alert/);
+});
 
 test("stream parser handles split UTF-8, CRLF, comments, multiple events and completion", async () => {
   const changes = [];

@@ -4,7 +4,8 @@ import { AVAILABLE_MODELS, isAvailableModel } from "../../../lib/models";
 import { sameOrigin, SESSION_COOKIE, verifySession } from "../../../lib/auth";
 import { BodyTooLarge, boundedBody } from "../../../lib/request-body";
 
-export const maxDuration = 120;
+// Hosting still enforces its own limit; this is not an application abort timer.
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   if (!verifySession(cookies().get(SESSION_COOKIE)?.value)) return NextResponse.json({ error: "Session berakhir. Silakan login kembali." }, { status: 401 });
@@ -29,14 +30,21 @@ export async function POST(request: Request) {
     const baseUrl = process.env.TOKEN_GATEWAY_BASE_URL.trim().replace(/\/+$/, "");
     const upstream = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.TOKEN_GATEWAY_API_KEY}` },
-      body: JSON.stringify({ model, messages: [...(system ? [{ role: "system", content: system }] : []), ...body.messages.map((m: { role: string; content: string }) => ({ role: m.role, content: m.content }))], stream: false }),
-      signal: AbortSignal.timeout(115000), cache: "no-store",
+      body: JSON.stringify({ model, messages: [...(system ? [{ role: "system", content: system }] : []), ...body.messages.map((m: { role: string; content: string }) => ({ role: m.role, content: m.content }))], stream: true }),
+      signal: request.signal, cache: "no-store",
     });
-    const data = await upstream.json().catch(() => null);
     if (!upstream.ok) {
-      const hints: Record<number, string> = { 400: "Periksa model dan isi pesan.", 401: "API key provider ditolak.", 403: "Akses provider ditolak.", 404: "Periksa base URL (termasuk /v1 jika diperlukan) dan ID model.", 429: "Kuota atau batas pemakaian provider tercapai." };
-      return NextResponse.json({ error: `Provider AI gagal (${upstream.status}). ${hints[upstream.status] || "Coba lagi beberapa saat."}` }, { status: upstream.status });
+      await upstream.body?.cancel();
+      const hints: Record<number, string> = { 400: "Periksa model dan isi pesan.", 401: "API key provider ditolak.", 403: "Akses provider ditolak.", 404: "Periksa base URL (termasuk /v1 jika diperlukan) dan ID model.", 429: "Kuota atau batas pemakaian provider tercapai.", 504: "Gateway/provider menghentikan penantian. Jika selalu sekitar 90 detik, minta admin TokenGateway memeriksa batas upstream dan dukungan streaming, atau pilih model lain. Menghapus timer browser tidak menghapus batas provider." };
+      return NextResponse.json({ error: `Provider AI gagal (${upstream.status}). ${hints[upstream.status] || "Coba lagi beberapa saat."}` }, { status: upstream.status === 401 || upstream.status === 403 ? 502 : upstream.status });
     }
+    if (upstream.headers.get("content-type")?.includes("text/event-stream") && upstream.body) {
+      return new Response(upstream.body, { headers: {
+        "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store, no-transform", "X-Accel-Buffering": "no",
+      } });
+    }
+    // Compatibility for gateways that return JSON despite stream:true. No retry/billing duplication.
+    const data = await upstream.json().catch(() => null);
     const content = data?.choices?.[0]?.message?.content;
     if (typeof content !== "string" || !content.trim()) return NextResponse.json({ error: "Format respons provider tidak didukung atau kosong." }, { status: 502 });
     return NextResponse.json({ content });

@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
-import { authConfigured, issueSession, sameOrigin, SESSION_COOKIE, SESSION_SECONDS } from "../../../lib/auth";
+import { authConfigured, issueSession, sameOrigin, SESSION_COOKIE, SESSION_SECONDS, verifySession } from "../../../lib/auth";
 import { allowLogin } from "../../../lib/login-limit";
+import { loginMetadata, recordLogin } from "../../../lib/login-audit";
 
 export async function POST(request: Request) {
   if (!sameOrigin(request)) return NextResponse.json({ error: "Origin ditolak." }, { status: 403 });
   if (!authConfigured()) {
     return NextResponse.json({ error: "Login belum dikonfigurasi. Isi ACCESS_CODE dan SESSION_SECRET (minimal 32 karakter), lalu redeploy." }, { status: 503 });
   }
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const ip = loginMetadata(request).ip_address || "unknown";
   if (!allowLogin(ip)) return NextResponse.json({ error: "Terlalu banyak percobaan. Coba lagi dalam 15 menit." }, { status: 429 });
   const text = await request.text();
   if (text.length > 4096) return NextResponse.json({ error: "Request terlalu besar." }, { status: 413 });
@@ -16,7 +17,10 @@ export async function POST(request: Request) {
   const token = issueSession(code);
   if (!token) return NextResponse.json({ error: "Kode akses salah. Silakan coba lagi." }, { status: 401 });
 
-  const response = NextResponse.json({ ok: true });
+  try { await recordLogin(request, verifySession(token)!.subject); }
+  catch { return NextResponse.json({ error: "Pencatatan login belum tersedia. Periksa database dan jalankan schema.sql terbaru, lalu coba lagi." }, { status: 503 }); }
+
+  const response = NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   response.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

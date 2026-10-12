@@ -110,18 +110,32 @@ module.exports = async function browserTest(base, cookie, executable) {
     await command("Emulation.clearDeviceMetricsOverride");
     console.log("PASS browser: centered compact composer, multiline growth and shrink on desktop and mobile");
     assert.ok((await evaluate('document.querySelector("link[rel=icon]").href')).includes("icon.svg"));
-    const longText = "a".repeat(500000) + "SECOND_PART_SENTINEL";
+    const longText = "Isi dokumen penelitian. ".repeat(4000) + "END_OF_DOCUMENT_SENTINEL";
     await upload("long-thesis.txt", longText);
-    await waitFor(async () => (await text()).includes("2 bagian"), "long file split");
-    assert.equal(await evaluate('document.querySelector(".pending-file") === null'), true);
-    await evaluate('const select=document.querySelector(".document-preview select"); select.value="1"; select.dispatchEvent(new Event("change",{bubbles:true}));');
-    await waitFor(async () => (await text()).includes("bagian 2/2"), "part selected");
-    assert.equal(await evaluate('document.querySelector(".document-preview pre").textContent'), "SECOND_PART_SENTINEL");
+    await waitFor(async () => (await text()).includes("Teks siap dilampirkan"), "long file loaded");
+    assert.equal(await evaluate('document.querySelector(".document-preview pre").textContent'), longText);
     await waitFor(() => evaluate('!document.querySelector("button[aria-label=Kirim]").disabled'), "send enabled");
     await evaluate('document.querySelector("button[aria-label=Kirim]").click()');
     await waitFor(async () => (await text()).includes("Halo Dika, ini respons mock."), "AI response");
     await waitFor(() => evaluate('!document.querySelector(".attach-button").disabled'), "autosave complete");
-    assert.ok((await text()).includes("long-thesis.txt — bagian 2/2"));
+    for (const viewport of [{ width: 1280, height: 900, mobile: false }, { width: 390, height: 844, mobile: true }]) {
+      await command("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1 });
+      const header = await evaluate(`(() => {
+        const scroller = document.querySelector('.chat-scroll');
+        scroller.scrollTop = 0;
+        const top = document.querySelector('.topbar').getBoundingClientRect().top;
+        const title = document.querySelector('.conversation-heading').getBoundingClientRect().top;
+        scroller.scrollTop = scroller.scrollHeight;
+        return { top, title, afterTop: document.querySelector('.topbar').getBoundingClientRect().top,
+          afterTitle: document.querySelector('.conversation-heading').getBoundingClientRect().top,
+          scrolled: scroller.scrollTop, bodyHeight: document.documentElement.scrollHeight, height: window.innerHeight };
+      })()`);
+      assert.ok(header.scrolled > 0, "Chat content scrolls");
+      assert.equal(header.top, header.afterTop, "App header stays fixed");
+      assert.equal(header.title, header.afterTitle, "Conversation title stays fixed");
+      assert.ok(header.bodyHeight <= header.height + 1, "Only chat area scrolls");
+    }
+    assert.ok((await text()).includes("long-thesis.txt"));
     await upload("unsupported.png", Buffer.from([1, 2, 3]));
     await waitFor(async () => (await text()).includes("Format belum didukung"), "unsupported error");
     await upload("scan.pdf", "%PDF-browser-mock");
@@ -149,7 +163,11 @@ module.exports = async function browserTest(base, cookie, executable) {
     const screenshotPath = path.join(os.tmpdir(), "kawasan-document-mobile.png");
     await fs.writeFile(screenshotPath, Buffer.from(screenshot.data, "base64"));
     assert.deepEqual(exceptions, [], "No uncaught browser exceptions");
-    console.log(`PASS browser: long UTF-8 upload, chosen part, AI response, unsupported file, consent cancellation, mock PDF/OCR and DOCX, mobile layout, theme, favicon. Screenshot: ${screenshotPath}`);
+    // A focused foreground tab checks its server lease; invalid/expired tokens cannot renew.
+    await command("Network.setCookie", { name: "chat_session", value: "expired-invalid-token", url: base, httpOnly: true, sameSite: "Strict" });
+    await evaluate('Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true }); window.dispatchEvent(new Event("focus"));');
+    await waitFor(() => evaluate('location.pathname === "/login"'), "expired session redirected to login");
+    console.log(`PASS browser: long UTF-8 upload, streaming AI response, fixed headers desktop/mobile, expired session redirect, unsupported file, consent cancellation, mock PDF/OCR and DOCX, mobile layout, theme, favicon. Screenshot: ${screenshotPath}`);
   } catch (error) {
     if (socket?.readyState === WebSocket.OPEN) console.error("Browser state:", await text().catch(() => "unavailable"));
     throw error;

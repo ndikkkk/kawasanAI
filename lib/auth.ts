@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 export const SESSION_COOKIE = "chat_session";
-export const SESSION_SECONDS = 60 * 60 * 24 * 7;
+export const SESSION_SECONDS = 10 * 60;
 type Environment = Record<string, string | undefined>;
 type Session = { subject: string; expires: number; version: string; nonce: string };
 
@@ -50,8 +50,15 @@ export function verifySession(token: string | undefined, env: Environment = proc
     if (!Number.isFinite(session.expires) || session.expires <= now || session.expires > now + SESSION_SECONDS * 1000) return null;
     const match = codes(env).find((code) => identity(code, env) === session.subject && sign(`code:${code}`, env) === session.version);
     if (!match) return null;
-    return { subject: session.subject };
+    return session;
   } catch { return null; }
+}
+
+export function renewSession(token: string | undefined, env: Environment = process.env, now = Date.now()) {
+  const session = verifySession(token, env, now);
+  if (!session) return null;
+  const payload = Buffer.from(JSON.stringify({ ...session, expires: now + SESSION_SECONDS * 1000 })).toString("base64url");
+  return `${payload}.${sign(payload, env)}`;
 }
 
 export function sameOrigin(request: Request) {

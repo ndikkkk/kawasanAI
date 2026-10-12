@@ -14,12 +14,16 @@ import WorkspaceStatus from "./workspace-status";
 import AutoTextarea from "./auto-textarea";
 import MarkdownContent from "./markdown-content";
 import useConfirmation from "./use-confirmation";
+import useSessionPresence from "./use-session-presence";
+import { readAiResponse } from "../lib/ai-stream";
 
 function formatSize(size: number) {
   return size < 1024 * 1024 ? `${Math.ceil(size / 1024)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export default function Chat() {
+  useSessionPresence();
+  const [streamed, setStreamed] = useState("");
   const [input, setInput] = useState("");
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [document, setDocument] = useState<ExtractedDocument | null>(null);
@@ -53,7 +57,7 @@ export default function Chat() {
     setWorkspace((current) => current ? { ...current, conversations: current.conversations.map((chat) => chat.id === id ? change(chat) : chat) } : current);
   }
 
-  function resetComposer() { setInput(""); setAttachment(null); setDocument(null); setSelectedPart(null); setError(""); setNotice(""); setEditingId(null); setMobileOpen(false); }
+  function resetComposer() { setInput(""); setAttachment(null); setDocument(null); setSelectedPart(null); setError(""); setStreamed(""); setNotice(""); setEditingId(null); setMobileOpen(false); }
   function createChat() {
     if (sending.current || reading || saving) return;
     if ((workspace?.conversations.length ?? 0) >= 100) { setError("Maksimal 100 percakapan bersama. Ekspor lalu hapus percakapan yang tidak diperlukan."); return; }
@@ -126,24 +130,23 @@ export default function Chat() {
     const projected = workspace.conversations.map((chat) => chat.id === active.id ? { ...chat, messages: next } : chat);
     // Reserve room for an assistant response (up to 150,000 characters with JSON escaping).
     if (new Blob([JSON.stringify({ revision: "0".repeat(36), conversations: projected })]).size > HISTORY_BYTES - 950000) { setError("Riwayat bersama hampir penuh. Ekspor lalu hapus percakapan lama sebelum menambah dokumen; ruang disisihkan untuk jawaban AI."); return; }
-    sending.current = true; setBusy(true); setError("");
+    sending.current = true; setBusy(true); setError(""); setStreamed("");
     const id = active.id;
     updateChat(id, (chat) => ({ ...chat, messages: next, updatedAt: Date.now(), title: chat.messages.length === 0 && chat.title === "New Brainstorm" ? userText.slice(0, 70) : chat.title }));
     setInput(""); setAttachment(null); setSelectedPart(null); setNotice("");
     controller.current = new AbortController();
-    const timer = window.setTimeout(() => controller.current?.abort(), 125000);
     try {
       const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: controller.current.signal });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || typeof data.content !== "string") throw new Error(data.error || `Chat gagal (${response.status}).`);
-      if (data.content.length > 500000) throw new Error("Jawaban terlalu panjang untuk disimpan. Coba minta jawaban lebih ringkas.");
-      updateChat(id, (chat) => ({ ...chat, messages: [...chat.messages, { role: "assistant", content: data.content }], updatedAt: Date.now() }));
+      if (response.status === 401) { window.location.replace("/login?expired=1"); return; }
+      const content = await readAiResponse(response, setStreamed);
+      updateChat(id, (chat) => ({ ...chat, messages: [...chat.messages, { role: "assistant", content }], updatedAt: Date.now() }));
+      setStreamed("");
     } catch (reason) {
       // Roll back this failed turn so retrying does not duplicate the prompt.
       updateChat(id, (chat) => ({ ...chat, messages: active.messages }));
       setInput(userText); setAttachment(attachment); setSelectedPart(selectedPart);
-      setError(reason instanceof Error && reason.name !== "AbortError" ? reason.message : "Permintaan melewati batas waktu. Silakan kirim ulang.");
-    } finally { window.clearTimeout(timer); sending.current = false; setBusy(false); controller.current = null; }
+      setError(reason instanceof Error && reason.name !== "AbortError" ? reason.message : "Respons dihentikan. Pesan dikembalikan ke kolom input; teks sementara belum disimpan.");
+    } finally { sending.current = false; setBusy(false); controller.current = null; }
   }
 
   async function logout() {
@@ -176,16 +179,20 @@ export default function Chat() {
     </aside>
     <div className="app-shell workspace-main">
       <header className="topbar"><button className="mobile-toggle icon-button" aria-label="Buka sidebar" aria-controls="chat-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}>☰</button><div className="top-brand"><span className="brand-dot">✦</span><span>kawasan<span className="brand-accent">.</span>ai</span></div><div className="top-actions"><button onClick={logout} disabled={locked} className="logout-button">Keluar</button></div></header>
+      <div className="conversation-bar"><h1 className="conversation-heading">{active.title}</h1></div>
+      <div className="chat-scroll">
       <section className="chat-layout">
-        {active.messages.length === 0 ? <div className="welcome"><p className="eyebrow">KAWASAN AI{workspace.preferences.name ? ` · Halo, ${workspace.preferences.name}` : ""}</p><h1>Apa yang ingin<br /><em>kamu jelajahi?</em></h1><p className="welcome-copy">Mulai brainstorm, unggah file, dan biarkan ide berkembang.</p></div> : <h1 className="conversation-heading">{active.title}</h1>}
+        {active.messages.length === 0 && <div className="welcome"><p className="eyebrow">KAWASAN AI{workspace.preferences.name ? ` · Halo, ${workspace.preferences.name}` : ""}</p><h2>Apa yang ingin<br /><em>kamu jelajahi?</em></h2><p className="welcome-copy">Mulai brainstorm, unggah file, dan biarkan ide berkembang.</p></div>}
         {storageError && <p role="alert" className="error-text">{storageError}</p>}
         <div className="history-sync"><span role="status">{saving ? "Menyimpan…" : pending ? "Perubahan belum tersimpan" : "Riwayat bersama dimuat"}</span><button disabled={locked || !pending} onClick={() => void save()}>Coba simpan</button><button disabled={locked} onClick={reload}>Muat ulang</button><button onClick={exportHistory}>Ekspor cadangan</button></div>
         <div className="messages" role="log" aria-label="Pesan chat" aria-live="polite">
           {active.messages.map((message, index) => <div className={`message-row ${message.role}`} key={`${active.id}-${index}`}><div className="message-avatar">{message.role === "assistant" ? <span role="img" aria-label="Asisten AI">✦</span> : <Image className="user-avatar" src="/avatars/user.svg" alt={workspace.preferences.name ? `Avatar ${workspace.preferences.name}` : "Avatar pengirim"} width={30} height={30} unoptimized />}</div><div className="message-bubble"><MarkdownContent content={message.content} />{message.attachment && <div className="attachment"><span>▧</span><div><strong>{message.attachment.name}</strong><small>{formatSize(message.attachment.size)} · {message.attachment.text === undefined ? "Metadata saja" : "Konteks teks"}</small></div></div>}</div></div>)}
-          {busy && <div className="message-row assistant"><div className="message-avatar">✦</div><div className="message-bubble typing" aria-label="AI sedang merespons"><i /><i /><i /></div></div>}
+          {streamed && <div className="message-row assistant"><div className="message-avatar">✦</div><div className="message-bubble"><small>{busy ? "Sedang menjawab…" : "Jawaban sementara — belum lengkap dan belum disimpan"}</small><MarkdownContent content={streamed} /></div></div>}
+          {busy && !streamed && <div className="message-row assistant"><div className="message-avatar">✦</div><div className="message-bubble typing" aria-label="AI sedang merespons"><i /><i /><i /></div></div>}
           <div ref={bottom} />
         </div>
         {error && <p role="alert" className="error-text chat-error">{error}</p>}
+        {busy && <button type="button" className="document-cancel" onClick={() => controller.current?.abort()}>Hentikan respons</button>}
         {notice && <p role="status" className="file-notice">{notice}</p>}
         {reading && <button type="button" className="document-cancel" onClick={() => extraction.current?.abort()}>Batalkan pembacaan</button>}
         {document && <DocumentPreview document={document} selected={selectedPart} locked={locked} onSelect={(index) => { setSelectedPart(index); setAttachment(partAttachment(document, index)); setNotice(`Bagian ${index + 1} siap dikirim. Bagian lain tidak otomatis dibaca AI.`); }} onClose={() => { setDocument(null); setSelectedPart(null); setAttachment(null); setNotice(""); }} />}
@@ -200,6 +207,7 @@ export default function Chat() {
         <p className="composer-note">Enter untuk kirim · Shift+Enter untuk baris baru. AI dapat membuat kesalahan.</p>
         <p className="file-support">PDF diproses lokal dengan OpenDataLoader atau Azure sesuai konfigurasi. DOCX melalui Azure. Teks/kode UTF-8 dibaca di browser. Maks. 500.000 karakter hasil ekstraksi, dipilih per bagian maks. 500.000 karakter; tidak dipotong diam-diam. Batas konteks model dan request 3 MB tetap berlaku. Gambar/audio/DOC lama belum didukung.</p>
       </section>
+      </div>
     </div>
     {settingsOpen && <SettingsDialog initial={workspace.preferences} onClose={() => setSettingsOpen(false)} onSave={(preferences) => setWorkspace((current) => current ? { ...current, preferences } : current)} />}
     {confirmationDialog}

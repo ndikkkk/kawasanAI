@@ -27,6 +27,52 @@ const { readDocument } = require("../lib/read-document.ts");
 const { boundedBody, BodyTooLarge } = require("../lib/request-body.ts");
 const DocumentPreview = require("../app/document-preview.tsx").default;
 const { documentParser, extractLocalPdf } = require("../lib/opendataloader.ts");
+const { readAiResponse } = require("../lib/ai-stream.ts");
+const { loginMetadata } = require("../lib/login-audit.ts");
+
+function streamResponse(text, byteSize = 7) {
+  const bytes = new TextEncoder().encode(text);
+  let offset = 0;
+  return new Response(new ReadableStream({ pull(controller) {
+    if (offset >= bytes.length) return controller.close();
+    controller.enqueue(bytes.slice(offset, offset += byteSize));
+  } }), { headers: { "content-type": "text/event-stream" } });
+}
+
+test("stream parser handles split UTF-8, CRLF, comments, multiple events and completion", async () => {
+  const changes = [];
+  const response = streamResponse(': heartbeat\r\n\r\ndata: {"choices":[{"delta":{"content":"Halo 🌏"}}]}\r\n\r\ndata: {"choices":[{"delta":{"content":" dunia"},"finish_reason":"stop"}]}\r\n\r\ndata: [DONE]\r\n\r\n', 1);
+  assert.equal(await readAiResponse(response, (content) => changes.push(content)), "Halo 🌏 dunia");
+  assert.deepEqual(changes, ["Halo 🌏", "Halo 🌏 dunia"]);
+});
+
+test("stream parser retains partial callback but rejects truncation, provider errors and output limits", async () => {
+  const delta = 'data: {"choices":[{"delta":{"content":"Sebagian"}}]}\n\n';
+  let partial;
+  await assert.rejects(readAiResponse(streamResponse(delta), (text) => { partial = text; }), /terputus/);
+  assert.equal(partial, "Sebagian");
+  await assert.rejects(readAiResponse(streamResponse(delta + 'data: {"error":{"message":"secret upstream diagnostic"}}\n\n'), () => {}), /Provider menghentikan/);
+  await assert.rejects(readAiResponse(streamResponse(delta + 'data: {"choices":[{"finish_reason":"length"}]}\n\n'), () => {}), /sebelum selesai/);
+  await assert.rejects(readAiResponse(streamResponse('data: [DONE]\n\n'), () => {}), /tidak mengirim/);
+  await assert.rejects(readAiResponse(streamResponse('data: invalid\n\n'), () => {}), /tidak valid/);
+  await assert.rejects(readAiResponse(streamResponse(`data: ${JSON.stringify({ choices: [{ delta: { content: "x".repeat(500001) } }] })}\n\n`, 65536), () => {}), /terlalu panjang/);
+  assert.equal(await readAiResponse(Response.json({ content: "JSON fallback" }), () => {}), "JSON fallback");
+});
+
+test("login metadata only trusts configured proxy headers, validates IP and never collects codes", () => {
+  const request = new Request("https://app.test", { headers: {
+    "x-forwarded-for": "198.51.100.10, 10.0.0.1", "x-vercel-forwarded-for": "2001:db8::1",
+    "x-vercel-ip-country": "ID", "x-vercel-ip-city": "Kota%20Bandung", "user-agent": "Test browser",
+  } });
+  assert.equal(loginMetadata(request, {}).ip_address, null);
+  assert.equal(loginMetadata(request, {}).city, null);
+  assert.equal(loginMetadata(request, { TRUST_PROXY_HEADERS: "true" }).ip_address, "198.51.100.10");
+  const metadata = loginMetadata(request, { VERCEL: "1" });
+  assert.equal(metadata.ip_address, "2001:db8::1");
+  assert.equal(metadata.city, "Kota Bandung");
+  assert.equal(metadata.country, "ID");
+  assert.equal(loginMetadata(new Request("https://app.test", { headers: { "x-forwarded-for": "spoof" } }), { TRUST_PROXY_HEADERS: "true" }).ip_address, null);
+});
 
 test("parser configuration fails closed and local input limits precede Java execution", async () => {
   assert.equal(documentParser({}), "azure");
@@ -212,6 +258,20 @@ test("both access codes work and retain distinct session subjects for revocation
   assert.notEqual(first.subject, second.subject);
   assert.equal(auth.issueSession("wrong", env), null);
   assert.equal(auth.issueSession(null, env), null);
+});
+
+test("ten-minute lease can only be renewed before expiry and preserves code identity", () => {
+  const now = 1700000000000;
+  const token = auth.issueSession(env.ACCESS_CODE, env, now);
+  assert.equal(auth.SESSION_SECONDS, 600);
+  assert.ok(auth.verifySession(token, env, now + 599999));
+  assert.equal(auth.verifySession(token, env, now + 600000), null);
+  assert.equal(auth.renewSession(token, env, now + 600000), null);
+  assert.equal(auth.renewSession("authenticated", env, now), null);
+  const renewed = auth.renewSession(token, env, now + 30000);
+  assert.equal(auth.verifySession(renewed, env, now + 600000).subject, auth.verifySession(token, env, now).subject);
+  assert.equal(auth.verifySession(renewed, env, now + 630000), null);
+  assert.equal(auth.renewSession(token, { ...env, ACCESS_CODE: "revoked" }, now), null);
 });
 
 test("fixed cookie, tampered signature, expiry and removed codes are rejected", () => {

@@ -115,7 +115,32 @@ Ikon tab bermerek K + kilau dengan warna Kawasan AI berada di `E:\web\webchatskr
 
 ## Keamanan dan batasan
 
-Session HMAC ditandatangani server, kedaluwarsa setelah 7 hari, cookie HttpOnly/Secure di production/SameSite Strict. Cookie `authenticated` yang dapat dipalsukan tidak lagi diterima. Secret dan kode tidak dikirim ke frontend. Permintaan mutasi dengan Origin lain ditolak.
+Session HMAC ditandatangani server, kedaluwarsa setelah **10 menit**, cookie HttpOnly/Secure di production/SameSite Strict. Heartbeat setiap 30 detik memperpanjang sesi hanya saat tab **terlihat, fokus, dan online** (membaca/menunggu jawaban pada tab aktif tetap dihitung aktif, tidak harus mengetik). Menutup tab, pindah tab/aplikasi, atau offline menghentikan perpanjangan; setelah sekitar 10 menit pengguna wajib login ulang. Jika ada tab lain yang masih aktif pada browser yang sama, cookie bersama tetap diperpanjang. Reload/buka kembali sebelum kedaluwarsa masih boleh masuk. Semua API memeriksa kedaluwarsa server; polling history tidak memperpanjang sesi. Browser yang dibekukan/offline akan diarahkan ke login saat kembali aktif dan server menolak sesi. Permintaan AI yang sudah diterima tidak otomatis dibatalkan oleh kedaluwarsa sesi, tetapi akses berikutnya memerlukan login. Cookie `authenticated` yang dapat dipalsukan tidak diterima. Secret dan kode tidak dikirim ke frontend. Permintaan mutasi dengan Origin lain ditolak.
+
+### Catatan login (wajib menjalankan SQL terbaru sebelum deploy)
+
+Jalankan ulang `E:\web\webchatskripsi\supabase\schema.sql`. Tabel baru **kawasan_login_events** menyimpan waktu login berhasil, identitas kode dalam bentuk HMAC (`subject`, bukan kode asli), IP, perkiraan negara/region/kota, dan user-agent. Pemilik dapat melihatnya di **Supabase → Table Editor → kawasan_login_events**, urutkan `logged_in_at` terbaru; atau jalankan:
+
+```sql
+select logged_in_at, subject, ip_address, country, region, city, user_agent
+from public.kawasan_login_events
+order by logged_in_at desc
+limit 100;
+```
+
+Tidak ada endpoint publik untuk membaca audit. Kode yang digunakan bersama tidak dapat mengidentifikasi orang secara pasti. Login ditolak (503, tanpa cookie baru) jika pencatatan database gagal, supaya tidak ada akses baru tanpa audit. Percobaan kode salah belum disimpan ke tabel ini. Heartbeat tidak menambah catatan login.
+
+Pada Vercel, IP berasal dari `x-vercel-forwarded-for` dan lokasi dari header geolokasi Vercel. Lokasi **perkiraan IP, bukan GPS**, bisa berubah karena VPN/proxy/operator dan bisa tidak tersedia. Pada lokal nilainya dapat `null`; tidak ada layanan geolokasi eksternal tambahan. Untuk VPS, aktifkan `TRUST_PROXY_HEADERS=true` hanya jika reverse proxy tepercaya **menimpa** `x-forwarded-for` dan origin tidak dapat diakses langsung. Mode VPS hanya mencatat IP; geolokasi di luar Vercel belum disediakan. Jangan mempercayai header kiriman browser. Pemberitahuan pencatatan tersedia di formulir login. Batasi akses dashboard dan tentukan retensi sesuai kebutuhan; belum ada penghapusan audit otomatis (pemilik perlu membersihkannya berkala, misalnya setelah 90 hari).
+
+### Header tetap dan streaming AI
+
+Logo, tombol keluar, dan judul percakapan berada di luar `.chat-scroll`; hanya area isi chat/composer yang bergulir, pada desktop maupun mobile. Sidebar memiliki scroll sendiri.
+
+Chat meminta `stream: true` ke `/chat/completions`, meneruskan SSE tanpa buffering aplikasi, dan menampilkan jawaban bertahap. Timer abort AI 115 detik (server) dan 125 detik (browser) sudah dihapus; tombol **Hentikan respons** membatalkan penantian. Gateway yang mengembalikan JSON tetap didukung tanpa request ulang otomatis. Error/stream terputus tidak dianggap jawaban selesai: teks sementara tetap terlihat dengan label belum disimpan, prompt dikembalikan ke input, dan pengguna dapat menyalin teks sementara sebelum mengirim ulang. Pembatalan tidak menjamin provider menghentikan proses/biaya. Respons lengkap tetap tunduk pada batas karakter, snapshot, dan konteks model yang ada.
+
+**90.000 ms pada TokenGateway bukan timer lama aplikasi (115.000 ms).** Streaming dapat membantu bila gateway mendukungnya dan timeout terkait menunggu respons lengkap, tetapi tidak menghapus hard timeout/first-token timeout provider. Jika tetap 504 sekitar 90 detik, admin TokenGateway perlu memeriksa timeout upstream, model, dan dukungan streaming. Tidak ada retry otomatis atau pemotongan prompt diam-diam. Uji model/prompt asli setelah deploy; pengujian lokal memakai mock dan tidak membuktikan konfigurasi TokenGateway produksi.
+
+Route chat meminta `maxDuration = 300` detik untuk hosting. **Ini bukan durasi tak terbatas**: aktifkan Fluid Compute/konfigurasi yang mendukungnya pada Vercel dan periksa batas plan; streaming juga tunduk pada maksimum hosting. Pada VPS, timeout reverse proxy/runtime/provider tetap perlu ditinjau. Untuk job yang benar-benar melebihi batas hosting diperlukan worker/job persisten terpisah, belum diimplementasikan di versi ini.
 
 Pembatasan login 10 percobaan/15 menit bersifat best-effort per proses. Untuk proteksi terdistribusi pada Vercel gunakan WAF/rate limit atau shared store. Logout menghapus cookie browser, bukan mencabut salinan token yang dicuri; rotasi kode atau SESSION_SECRET untuk pencabutan. Ini bukan audit keamanan menyeluruh. Framework masih versi existing; pembaruan keamanan dependency perlu ditinjau sebelum penggunaan publik yang luas.
 

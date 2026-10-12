@@ -7,10 +7,19 @@ const path = require("node:path");
 
 async function main() {
   const calls = [];
+  let providerMode = "json";
   const provider = http.createServer(async (req, res) => {
     let raw = "";
     for await (const part of req) raw += part;
     calls.push({ url: req.url, body: JSON.parse(raw) });
+    if (providerMode === "504") { res.writeHead(504); res.end("Gateway timeout"); return; }
+    if (providerMode === "stream" || providerMode === "truncated") {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write('data: {"choices":[{"delta":{"content":"Halo Dika, "}}]}\n\n');
+      if (providerMode === "truncated") { res.end(); return; }
+      setTimeout(() => res.end('data: {"choices":[{"delta":{"content":"ini respons mock."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'), 150);
+      return;
+    }
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ choices: [{ message: { content: "Halo Dika, ini respons mock." } }] }));
   });
@@ -19,12 +28,19 @@ async function main() {
   let history = { revision: randomUUID(), conversations: [] };
   let databaseDown = false;
   const databaseCalls = [];
+  const loginEvents = [];
   const database = http.createServer(async (req, res) => {
     databaseCalls.push({ url: req.url, key: req.headers.apikey, authorization: req.headers.authorization });
     res.setHeader("content-type", "application/json");
     if (databaseDown) { res.writeHead(503); res.end('{"error":"mock database unavailable"}'); return; }
     if (req.headers.apikey !== "sb_secret_mock_not_real") { res.writeHead(401); res.end("{}"); return; }
     const url = new URL(req.url, "http://mock.test");
+    if (url.pathname === "/rest/v1/kawasan_login_events" && req.method === "POST") {
+      let raw = "";
+      for await (const part of req) raw += part;
+      loginEvents.push(JSON.parse(raw));
+      res.writeHead(201); res.end(); return;
+    }
     if (url.pathname !== "/rest/v1/kawasan_history" || url.searchParams.get("id") !== "eq.shared") { res.writeHead(400); res.end("{}"); return; }
     if (req.method === "GET") { res.end(JSON.stringify([history])); return; }
     if (req.method === "PATCH") {
@@ -88,7 +104,23 @@ async function main() {
     assert.match(setCookie, /HttpOnly/i);
     assert.match(setCookie, /Secure/i);
     assert.match(setCookie, /SameSite=strict/i);
+    assert.match(setCookie, /Max-Age=600/i);
+    assert.equal(loginEvents.length, 1);
+    assert.ok(loginEvents[0].subject);
+    assert.ok(!JSON.stringify(loginEvents).includes("smoke-code"));
     const cookie = setCookie.split(";")[0];
+    assert.equal((await post("/api/session", {})).status, 401);
+    assert.equal((await post("/api/session", {}, "chat_session=authenticated")).status, 401);
+    const renewal = await post("/api/session", {}, cookie);
+    assert.equal(renewal.status, 200);
+    assert.match(renewal.headers.get("set-cookie"), /Max-Age=600/i);
+    assert.equal(loginEvents.length, 1, "Heartbeats do not log additional logins");
+    assert.equal((await fetch(`${base}/api/session`, { method: "POST", headers: { Cookie: cookie, Origin: "https://evil.test" } })).status, 403);
+    databaseDown = true;
+    const auditFailure = await post("/api/login", { code: "smoke-code-one" });
+    assert.equal(auditFailure.status, 503);
+    assert.equal(auditFailure.headers.get("set-cookie"), null);
+    databaseDown = false;
     async function uploadDocument(body, type = "application/pdf", origin) {
       return fetch(`${base}/api/documents`, { method: "POST", headers: { Cookie: cookie, "Content-Type": type, ...(origin ? { Origin: origin } : {}) }, body });
     }
@@ -128,7 +160,7 @@ async function main() {
     assert.equal((await getHistory()).status, 401);
     assert.equal((await getHistory("chat_session=authenticated")).status, 401);
     assert.equal((await putHistory({})).status, 401);
-    assert.equal(databaseCalls.length, 0);
+    assert.equal(databaseCalls.filter((call) => call.url.includes("/kawasan_history")).length, 0);
     const firstHistoryResponse = await getHistory(cookie);
     assert.equal(firstHistoryResponse.status, 200);
     assert.match(firstHistoryResponse.headers.get("cache-control"), /no-store/);
@@ -171,6 +203,7 @@ async function main() {
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, "/v1/chat/completions");
     assert.equal(calls[0].body.model, "gpt-5.4-mini");
+    assert.equal(calls[0].body.stream, true);
     assert.match(calls[0].body.messages[0].content, /Dika/);
     assert.match(calls[0].body.messages[0].content, /Ringkas/);
     const instructions = "Instruksi panjang dengan contoh. ".repeat(200);
@@ -184,6 +217,20 @@ async function main() {
     const documentChat = await post("/api/chat", { messages: [{ role: "user", content: `Analisis bagian 2/2\n${selectedText}` }] }, cookie);
     assert.equal(documentChat.status, 200);
     assert.ok(calls[2].body.messages.at(-1).content.endsWith(selectedText));
+    providerMode = "504";
+    const timedOut = await post("/api/chat", { messages: [{ role: "user", content: "Timeout test" }] }, cookie);
+    assert.equal(timedOut.status, 504);
+    assert.match((await timedOut.json()).error, /90 detik/);
+    providerMode = "stream";
+    const streamed = await post("/api/chat", { messages: [{ role: "user", content: "Streaming test" }] }, cookie);
+    assert.match(streamed.headers.get("content-type"), /text\/event-stream/);
+    assert.match(streamed.headers.get("cache-control"), /no-transform/);
+    const streamReader = streamed.body.getReader();
+    const firstChunk = new TextDecoder().decode((await streamReader.read()).value);
+    assert.match(firstChunk, /Halo Dika/);
+    let tail = "";
+    while (true) { const { value, done } = await streamReader.read(); if (done) break; tail += new TextDecoder().decode(value); }
+    assert.match(firstChunk + tail, /\[DONE\]/);
     if (process.env.KAWASAN_BROWSER) await require("./browser.cjs")(base, cookie, process.env.KAWASAN_BROWSER);
     const logout = await post("/api/logout", {}, cookie);
     assert.equal(logout.status, 200);

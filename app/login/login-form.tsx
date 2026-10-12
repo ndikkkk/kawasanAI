@@ -44,7 +44,7 @@ export default function LoginForm() {
           {error && <p className="error-text">{error}</p>}
           <button className="primary-button" disabled={loading}>{loading ? "Memeriksa…" : "Masuk ke Kawasan AI"}<span>→</span></button>
         </form>
-        <p className="login-note">Akses ini hanya untuk penggunaan pribadi.</p>
+        <p className="login-note">Akses pribadi. IP, perkiraan lokasi, waktu login, dan informasi browser dicatat untuk keamanan. Sesi berakhir setelah sekitar 10 menit meninggalkan aplikasi.</p>
       </section>
     </main>
   );

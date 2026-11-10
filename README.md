@@ -18,7 +18,7 @@ Layak diuji sebagai alternatif untuk dokumen berbasis teks pada hosting tanpa Ja
 ## Menjalankan lokal
 
 1. Salin `E:\web\webchatskripsi\.env.example` ke `E:\web\webchatskripsi\.env.local`.
-2. Isi `ACCESS_CODE`, `SESSION_SECRET`, `TOKEN_GATEWAY_BASE_URL`, `TOKEN_GATEWAY_API_KEY`, `SUPABASE_URL`, dan `SUPABASE_SECRET_KEY`. Siapkan database sesuai panduan di bawah.
+2. Isi `ACCESS_CODE`, `SESSION_SECRET`, `TOKEN_GATEWAY_BASE_URL`, dan `TOKEN_GATEWAY_API_KEY`.
 3. Buat SESSION_SECRET acak minimal 32 karakter dengan `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Jangan commit nilainya.
 4. Jalankan `npm install`, lalu `npm run dev` dari `E:\web\webchatskripsi`.
 5. Base URL harus sesuai provider; aplikasi menambahkan `/chat/completions` otomatis. Model harus merupakan ID yang diterima provider.
@@ -32,29 +32,16 @@ Import repository `ndikkkk/kawasanAI`, pilih Next.js dan root directory default.
 | ACCESS_CODE | Secret/Sensitive | Satu atau beberapa kode dipisahkan koma, misalnya `kode-pertama,kode-kedua,kode-ketiga` |
 | ACCESS_CODE_2 | Secret/Sensitive | Kompatibilitas lama; dapat dikosongkan/dihapus setelah nilainya dipindah ke ACCESS_CODE |
 | SESSION_SECRET | Secret/Sensitive | Wajib, acak minimal 32 karakter; bukan kode login |
-| SUPABASE_URL | Config | URL project Supabase, `https://PROJECT.supabase.co` |
-| SUPABASE_SECRET_KEY | Secret/Sensitive | Secret key backend `sb_secret_...`; bukan publishable/anon key dan tidak memakai prefix NEXT_PUBLIC_ |
 | TOKEN_GATEWAY_API_KEY | Secret/Sensitive | API key dari TokenGateway |
 | TOKEN_GATEWAY_BASE_URL | Config | Base URL dari provider, termasuk /v1 jika disyaratkan |
 | TOKEN_GATEWAY_MODEL | Config | Opsional: default jika request tidak mengirim model |
 | SYSTEM_PROMPT | Config | Opsional: instruksi umum asisten |
 
-Simpan lalu redeploy. Versi ini menolak login jika SESSION_SECRET belum diisi. Cookie lama sengaja tidak berlaku: pengguna perlu login ulang.
+Simpan lalu redeploy. Tidak diperlukan akun/database Supabase. Versi ini menolak login jika SESSION_SECRET belum diisi. Cookie lama sengaja tidak berlaku: pengguna perlu login ulang.
 
 Pada halaman login masukkan **salah satu kode**, bukan seluruh daftar. Spasi di awal/akhir diabaikan, entri kosong diabaikan, kode duplikat digabung, dan huruf besar/kecil tetap dibedakan. Koma adalah pemisah, sehingga tidak dapat menjadi bagian dari kode. Menambah/mengurutkan ulang daftar tidak membatalkan session kode yang masih terdaftar; menghapus kode membatalkan session kode tersebut (pastikan juga tidak tersisa di ACCESS_CODE_2).
 
-Semua kode memiliki izin dan kuota provider yang sama, bukan akun dengan saldo terpisah. **Semua pengguna/perangkat berbagi riwayat Supabase yang sama**, meskipun kode login berbeda. Mengganti kode/SESSION_SECRET tidak menghapus riwayat database. Session tetap memiliki subjek per kode agar kode yang dicabut tidak dapat mengakses database melalui aplikasi.
-
-## Membuat project Supabase
-
-1. Buka https://supabase.com/dashboard, masuk/daftar, lalu **New project**. Pilih organisasi, nama `kawasan-ai`, password database yang kuat, dan region dekat pengguna (misalnya Singapore bila tersedia). Simpan password di password manager; jangan kirim lewat chat.
-2. Setelah project siap, buka **SQL Editor → New query**. Salin seluruh isi `E:\web\webchatskripsi\supabase\schema.sql`, lalu **Run**. Script dapat dijalankan ulang tanpa menghapus history. Pastikan tabel `kawasan_history` berisi satu baris dengan `id = shared`.
-3. Ambil **Project URL** dari Connect atau Integrations → Data API, kemudian **secret key** dari Settings → API Keys (format `sb_secret_...`). Key ini berbeda dari password database; tidak perlu connection string Postgres, Supabase Auth, atau bucket Storage.
-4. Di Vercel → project Kawasan AI → Settings → Environment Variables, isi `SUPABASE_URL` dan `SUPABASE_SECRET_KEY`, ditambah konfigurasi pada tabel di atas. Secret hanya disimpan di Vercel atau `E:\web\webchatskripsi\.env.local`, tidak di repository atau chat. Gunakan database terpisah untuk Preview agar pengujian tidak mengubah history Production.
-5. Deploy/redeploy versi terbaru setelah konfigurasi tersimpan. Bila SQL/config belum siap, layar menampilkan error database dan tidak diam-diam menyimpan chat ke mode lokal.
-6. Uji dari dua browser/perangkat: login dengan kode berbeda, buat/kirim chat di perangkat pertama, tunggu status tersimpan, lalu lihat dari perangkat kedua (muat ulang atau tunggu 10 detik). Uji juga rename/delete; perubahan berlaku untuk semua orang.
-
-Backend Next.js memvalidasi session sebelum mengakses REST API Supabase lewat `fetch`. Secret key dikirim hanya pada header `apikey` server-ke-server. SQL mengaktifkan RLS dan mencabut akses `anon`/`authenticated`; **jangan membuat policy baca/tulis publik**. Secret backend melewati RLS, sehingga siapa pun yang memperoleh secret ini bisa mengakses database. Pembuatan project, SQL asli, dan konfigurasi Vercel harus dilakukan oleh pemilik akun; pengujian lokal memakai mock, bukan project asli.
+Semua kode memiliki izin dan kuota provider yang sama, bukan akun dengan saldo terpisah. Riwayat tersimpan secara lokal pada browser/perangkat yang digunakan dan tidak dibagikan lintas perangkat.
 
 ## Riwayat dan pengaturan
 
@@ -64,11 +51,10 @@ Backend Next.js memvalidasi session sebelum mengakses REST API Supabase lewat `f
 - Tombol terang/gelap tersedia di semua halaman. Pilihan tema tersimpan lokal di browser; tanpa pilihan tersimpan, mengikuti tema perangkat.
 - Konfirmasi hapus, muat ulang perubahan lokal, dan keluar dengan perubahan belum tersimpan memakai dialog aplikasi. Peringatan saat menutup tab tetap mengikuti browser untuk melindungi perubahan belum tersimpan.
 - Kolom pesan membesar otomatis mengikuti isi tanpa pegangan resize manual.
-- Riwayat (termasuk teks lampiran) ada di Supabase dan dapat dibaca, diubah, serta dihapus semua pemegang kode. Bukan percakapan privat per pengguna; logout tidak menghapus history bersama. Nama panggilan, preferensi, dan sidebar disimpan lokal pada browser yang sama untuk semua kode; teks respons AI bisa menyebut nama/preferensi dan tetap terlihat bersama.
-- Autosave setelah perubahan berhenti selama 600 ms, ditunda selama AI merespons. Polling setiap 10 detik pada tab terlihat dan tidak ada perubahan lokal; bukan realtime streaming. Status belum tersimpan harus diselesaikan sebelum menutup tab. Bila gagal, gunakan **Coba simpan** atau **Ekspor cadangan** (JSON; belum ada UI impor).
-- Penyimpanan memakai satu snapshot dengan revision UUID dan conditional update atomik. Penulis kedua mendapat konflik HTTP 409, bukan menimpa perubahan orang lain. Ekspor perubahan lokal sebelum **Muat ulang**, lalu ulangi perubahan yang diperlukan. Perubahan bersamaan belum digabung otomatis.
-- Batas awal untuk grup kecil: **100 percakapan**, **200 pesan per percakapan**, dan **3 MB total request snapshot bersama** (termasuk teks lampiran). Batas total ini berbeda dari batas pemilihan file 20 MB. Ekspor lalu hapus history jika penuh; volume lebih besar perlu skema per-percakapan dan pagination. Cadangan ekspor mengandung data chat—simpan dengan aman.
-- Data localStorage lama (`ruang-ai-messages` dan `kawasan-ai-v2:*`) tetap utuh dan **tidak otomatis dipublikasikan** ke grup. Migrasi/impor riwayat lama belum tersedia di UI. Hanya preferensi baru disimpan dalam `kawasan-ai-preferences`; chat bersama tidak dicache permanen oleh aplikasi di localStorage.
+- Riwayat (termasuk teks lampiran), nama panggilan, preferensi, dan sidebar disimpan di browser lokal dan tidak dibagikan lintas browser/perangkat. Logout tidak menghapus history lokal.
+- Autosave ke browser setelah perubahan berhenti selama 600 ms, ditunda selama AI merespons. Bila browser menolak penyimpanan, gunakan **Ekspor cadangan** (JSON).
+- Kapasitas bergantung pada browser; hapus percakapan lama atau ekspor cadangan bila penuh. Cadangan ekspor mengandung data chat—simpan dengan aman.
+- Data localStorage lama (`ruang-ai-messages` dan `kawasan-ai-v2:*`) tetap utuh. Riwayat lama di Supabase tidak dimigrasikan otomatis; aplikasi kini tidak mengakses database tersebut.
 - Avatar SVG lokal: `E:\web\webchatskripsi\public\avatars\user.svg`.
 
 ## Membaca PDF, scan, DOCX, dan teks
@@ -81,7 +67,7 @@ Backend Next.js memvalidasi session sebelum mengakses REST API Supabase lewat `f
 - Maksimal **500.000 karakter hasil ekstraksi** di memori browser. Dokumen lebih panjang ditolak dengan pesan eksplisit, tidak dipotong. Ekstraksi Azure sudah dapat dikenai biaya walaupun hasil terlalu panjang atau tidak terbaca.
 - Dokumen dibagi tanpa kehilangan karakter menjadi bagian maksimal **500.000 karakter** (sama dengan batas ekstraksi). Untuk dokumen multi-bagian pengguna wajib memilih bagian; tidak otomatis mengirim 500.000 karakter pertama. Pratinjau menampilkan teks yang akan dikirim. Bagian tersisa tetap di memori selama percakapan ini terbuka, tetapi hilang setelah pindah percakapan, reload, atau menutup dokumen.
 - Analisis bertahap: pilih bagian → minta analisis → pilih bagian berikutnya → minta sintesis. **Bukan RAG/retrieval otomatis**; AI hanya menerima bagian yang sudah dikirim. Batas model bergantung pada provider dan tidak diketahui dari nama model saja. Bila konteks penuh, mulai brainstorm baru dengan ringkasan sebelumnya. Angka karakter bukan jumlah token.
-- Request chat tetap maksimal 3 MiB/200 pesan, snapshot riwayat bersama 3 MiB. UI menyisihkan sekitar 950 KB untuk respons sebelum menambah pesan. Banyak dokumen tetap dapat memenuhi riwayat: ekspor lalu hapus percakapan lama. Teks bagian yang dikirim disimpan bersama dan terlihat semua pemegang kode. OpenDataLoader menulis PDF sementara di direktori temp server dan menghapusnya pada jalur selesai/gagal; crash atau penghentian paksa server dapat meninggalkan file sementara. File mentah tidak disimpan ke Supabase.
+- Request chat tetap maksimal 3 MiB/200 pesan. Banyak dokumen dapat memenuhi penyimpanan browser: ekspor lalu hapus percakapan lama. OpenDataLoader menulis PDF sementara di direktori temp server dan menghapusnya pada jalur selesai/gagal; crash atau penghentian paksa server dapat meninggalkan file sementara.
 - OCR bisa salah, terutama rumus, tabel, multikolom, kutipan, dan nomor halaman. DOCX hanya teks tertanam: gambar di DOCX **tidak** di-OCR; ekspor ke PDF jika perlu OCR gambar tersebut. Pratinjau bukan reproduksi layout asli. Periksa dengan dokumen asli sebelum digunakan dalam skripsi.
 - Lampiran metadata-only dari riwayat lama tetap terbaca sebagai metadata; tidak otomatis diekstrak ulang atau diklaim sudah dibaca.
 
@@ -130,20 +116,9 @@ Ikon tab bermerek K + kilau dengan warna Kawasan AI berada di `E:\web\webchatskr
 
 Session HMAC ditandatangani server, kedaluwarsa setelah **10 menit**, cookie HttpOnly/Secure di production/SameSite Strict. Heartbeat setiap 30 detik memperpanjang sesi hanya saat tab **terlihat, fokus, dan online** (membaca/menunggu jawaban pada tab aktif tetap dihitung aktif, tidak harus mengetik). Menutup tab, pindah tab/aplikasi, atau offline menghentikan perpanjangan; setelah sekitar 10 menit pengguna wajib login ulang. Jika ada tab lain yang masih aktif pada browser yang sama, cookie bersama tetap diperpanjang. Reload/buka kembali sebelum kedaluwarsa masih boleh masuk. Semua API memeriksa kedaluwarsa server; polling history tidak memperpanjang sesi. Browser yang dibekukan/offline akan diarahkan ke login saat kembali aktif dan server menolak sesi. Permintaan AI yang sudah diterima tidak otomatis dibatalkan oleh kedaluwarsa sesi, tetapi akses berikutnya memerlukan login. Cookie `authenticated` yang dapat dipalsukan tidak diterima. Secret dan kode tidak dikirim ke frontend. Permintaan mutasi dengan Origin lain ditolak.
 
-### Catatan login (wajib menjalankan SQL terbaru sebelum deploy)
+### Penyimpanan dan privasi
 
-Jalankan ulang `E:\web\webchatskripsi\supabase\schema.sql`. Tabel baru **kawasan_login_events** menyimpan waktu login berhasil, identitas kode dalam bentuk HMAC (`subject`, bukan kode asli), IP, perkiraan negara/region/kota, dan user-agent. Pemilik dapat melihatnya di **Supabase → Table Editor → kawasan_login_events**, urutkan `logged_in_at` terbaru; atau jalankan:
-
-```sql
-select logged_in_at, subject, ip_address, country, region, city, user_agent
-from public.kawasan_login_events
-order by logged_in_at desc
-limit 100;
-```
-
-Tidak ada endpoint publik untuk membaca audit. Kode yang digunakan bersama tidak dapat mengidentifikasi orang secara pasti. Login ditolak (503, tanpa cookie baru) jika pencatatan database gagal, supaya tidak ada akses baru tanpa audit. Percobaan kode salah belum disimpan ke tabel ini. Heartbeat tidak menambah catatan login.
-
-Pada Vercel, IP berasal dari `x-vercel-forwarded-for` dan lokasi dari header geolokasi Vercel. Lokasi **perkiraan IP, bukan GPS**, bisa berubah karena VPN/proxy/operator dan bisa tidak tersedia. Pada lokal nilainya dapat `null`; tidak ada layanan geolokasi eksternal tambahan. Untuk VPS, aktifkan `TRUST_PROXY_HEADERS=true` hanya jika reverse proxy tepercaya **menimpa** `x-forwarded-for` dan origin tidak dapat diakses langsung. Mode VPS hanya mencatat IP; geolokasi di luar Vercel belum disediakan. Jangan mempercayai header kiriman browser. Pemberitahuan pencatatan tersedia di formulir login. Batasi akses dashboard dan tentukan retensi sesuai kebutuhan; belum ada penghapusan audit otomatis (pemilik perlu membersihkannya berkala, misalnya setelah 90 hari).
+Riwayat percakapan dan preferensi disimpan di `localStorage` browser yang sedang digunakan; aplikasi tidak mengirimnya ke database aplikasi/Supabase. Menghapus data situs/browser akan menghapus riwayat lokal. Tidak ada sinkronisasi lintas perangkat. Aplikasi tidak menyimpan IP, lokasi, atau user-agent login ke database. Hosting (misalnya Vercel), reverse proxy, browser, dan layanan AI/provider tetap dapat memproses metadata koneksi sesuai kebijakan mereka; perubahan ini hanya menghapus pencatatan oleh aplikasi ke Supabase, bukan logging bawaan infrastruktur. Data/tabel lama di project Supabase tidak terhapus oleh perubahan kode ini dan harus dihapus manual oleh pemilik bila diinginkan.
 
 ### Header tetap dan streaming AI
 
@@ -167,4 +142,4 @@ npm run build
 npm run test:smoke
 ```
 
-Smoke test menjalankan build production, provider AI palsu, dan mock REST Supabase: menguji autentikasi, riwayat lintas kode, update konflik, penolakan origin/body tidak valid, serta error database tanpa memakai secret asli atau kuota TokenGateway. Jalankan build terlebih dahulu. Pengujian browser visual dan SQL/RLS di project Supabase asli masih perlu dilakukan setelah konfigurasi.
+Smoke test menjalankan build production dan provider AI palsu untuk menguji autentikasi, batas payload chat/dokumen, penolakan origin, dan logout tanpa menghubungi Supabase atau kuota TokenGateway. Jalankan build terlebih dahulu.

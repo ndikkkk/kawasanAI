@@ -6,7 +6,6 @@ import { AVAILABLE_MODELS } from "../lib/models";
 import { Attachment, ChatMessage, Conversation, messageContent, newConversation } from "../lib/chat-store";
 import { documentError, documentFile, documentParts, ExtractedDocument, partAttachment } from "../lib/document-text";
 import { documentConfiguration, readDocument } from "../lib/read-document";
-import { HISTORY_BYTES } from "../lib/shared-history";
 import DocumentPreview from "./document-preview";
 import SettingsDialog from "./settings-dialog";
 import useSharedWorkspace from "./use-shared-workspace";
@@ -129,8 +128,6 @@ export default function Chat() {
     // Reserve one message for the assistant so the completed turn remains persistable.
     if (next.length >= 200 || new Blob([body]).size > 3 * 1024 * 1024) { setError("Konteks terlalu panjang. Mulai New Brainstorm agar dapat melanjutkan."); return; }
     const projected = workspace.conversations.map((chat) => chat.id === active.id ? { ...chat, messages: next } : chat);
-    // Reserve room for an assistant response (up to 150,000 characters with JSON escaping).
-    if (new Blob([JSON.stringify({ revision: "0".repeat(36), conversations: projected })]).size > HISTORY_BYTES - 950000) { setError("Riwayat bersama hampir penuh. Ekspor lalu hapus percakapan lama sebelum menambah dokumen; ruang disisihkan untuk jawaban AI."); return; }
     latest();
     sending.current = true; setBusy(true); setError(""); setStreamed("");
     const id = active.id;

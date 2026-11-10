@@ -29,7 +29,6 @@ const { boundedBody, BodyTooLarge } = require("../lib/request-body.ts");
 const DocumentPreview = require("../app/document-preview.tsx").default;
 const { documentParser, extractLocalPdf } = require("../lib/opendataloader.ts");
 const { readAiResponse } = require("../lib/ai-stream.ts");
-const { loginMetadata } = require("../lib/login-audit.ts");
 
 function streamResponse(text, byteSize = 7) {
   const bytes = new TextEncoder().encode(text);
@@ -66,21 +65,6 @@ test("stream parser retains partial callback but rejects truncation, provider er
   await assert.rejects(readAiResponse(streamResponse('data: invalid\n\n'), () => {}), /tidak valid/);
   await assert.rejects(readAiResponse(streamResponse(`data: ${JSON.stringify({ choices: [{ delta: { content: "x".repeat(500001) } }] })}\n\n`, 65536), () => {}), /terlalu panjang/);
   assert.equal(await readAiResponse(Response.json({ content: "JSON fallback" }), () => {}), "JSON fallback");
-});
-
-test("login metadata only trusts configured proxy headers, validates IP and never collects codes", () => {
-  const request = new Request("https://app.test", { headers: {
-    "x-forwarded-for": "198.51.100.10, 10.0.0.1", "x-vercel-forwarded-for": "2001:db8::1",
-    "x-vercel-ip-country": "ID", "x-vercel-ip-city": "Kota%20Bandung", "user-agent": "Test browser",
-  } });
-  assert.equal(loginMetadata(request, {}).ip_address, null);
-  assert.equal(loginMetadata(request, {}).city, null);
-  assert.equal(loginMetadata(request, { TRUST_PROXY_HEADERS: "true" }).ip_address, "198.51.100.10");
-  const metadata = loginMetadata(request, { VERCEL: "1" });
-  assert.equal(metadata.ip_address, "2001:db8::1");
-  assert.equal(metadata.city, "Kota Bandung");
-  assert.equal(metadata.country, "ID");
-  assert.equal(loginMetadata(new Request("https://app.test", { headers: { "x-forwarded-for": "spoof" } }), { TRUST_PROXY_HEADERS: "true" }).ip_address, null);
 });
 
 test("parser configuration fails closed and local input limits precede Java execution", async () => {

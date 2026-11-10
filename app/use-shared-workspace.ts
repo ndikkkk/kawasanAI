@@ -2,15 +2,15 @@
 
 import { Dispatch, SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 import { Workspace, newWorkspace } from "../lib/chat-store";
-import { HISTORY_BYTES, SharedHistory, validConversations, validRevision } from "../lib/shared-history";
+import { validConversations } from "../lib/shared-history";
 import type { Confirm } from "./use-confirmation";
 
 const PREFERENCES_KEY = "kawasan-ai-preferences";
+const WORKSPACE_KEY = "kawasan-ai-workspace";
 
 export default function useSharedWorkspace(busy: boolean, confirm: Confirm) {
   const [workspace, render] = useState<Workspace | null>(null);
   const current = useRef<Workspace | null>(null);
-  const revision = useRef("");
   const dirty = useRef(false);
   const working = useRef(false);
   const blocked = useRef(false);
@@ -39,70 +39,61 @@ export default function useSharedWorkspace(busy: boolean, confirm: Confirm) {
     working.current = true;
     const initialConversations = current.current?.conversations;
     try {
-      const response = await fetch("/api/history", { cache: "no-store", signal: AbortSignal.timeout(25000) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Gagal memuat riwayat bersama.");
-      if (!validRevision(data.revision) || !validConversations(data.conversations)) throw new Error("Respons riwayat tidak valid.");
+      let savedWorkspace: Workspace | null = null;
+      try {
+        const raw = localStorage.getItem(WORKSPACE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (!parsed || !validConversations(parsed.conversations) || typeof parsed.activeId !== "string") throw new Error();
+          savedWorkspace = parsed as Workspace;
+        }
+      } catch { throw new Error("Riwayat lokal tidak valid atau tidak dapat dibaca; data tidak ditimpa."); }
       if (!alive.current || busyRef.current || initialConversations !== current.current?.conversations || (!force && dirty.current)) return;
-      const snapshot = data as SharedHistory;
       let previous = current.current;
       if (!previous) {
         previous = newWorkspace();
         try {
           const raw = localStorage.getItem(PREFERENCES_KEY);
           if (raw) {
-            const saved = JSON.parse(raw);
-            if (typeof saved.name !== "string" || typeof saved.instructions !== "string") throw new Error();
-            previous.preferences = { name: saved.name.slice(0, 60), instructions: saved.instructions };
-            previous.collapsed = saved.collapsed === true;
+            const preferences = JSON.parse(raw);
+            if (typeof preferences.name !== "string" || typeof preferences.instructions !== "string") throw new Error();
+            previous.preferences = { name: preferences.name.slice(0, 60), instructions: preferences.instructions };
+            previous.collapsed = preferences.collapsed === true;
           }
         } catch {
           preferencesWritable.current = false;
-          setPreferenceError("Preferensi lokal tidak dapat dibaca; data lama tidak ditimpa. Riwayat bersama tetap tersedia.");
+          setPreferenceError("Preferensi lokal tidak dapat dibaca; data lama tidak ditimpa.");
         }
       }
-      // Preserve an unsaved empty brainstorm until a real shared revision changes.
-      if (revision.current !== snapshot.revision || force || !current.current) {
-        const conversations = snapshot.conversations.length ? snapshot.conversations : newWorkspace().conversations;
-        const next = { ...previous, conversations, activeId: conversations.some((chat) => chat.id === previous!.activeId) ? previous.activeId : conversations[0].id };
-        current.current = next;
-        render(next);
-      }
-      revision.current = snapshot.revision;
+      const source = savedWorkspace || previous;
+      const conversations = source.conversations.length ? source.conversations : newWorkspace().conversations;
+      const next = { ...previous, ...source, conversations, activeId: conversations.some((chat) => chat.id === source.activeId) ? source.activeId : conversations[0].id };
+      current.current = next;
+      render(next);
       dirty.current = false;
       blocked.current = false;
       setPending(false);
       setStorageError("");
     } catch (reason) {
-      if (alive.current) setStorageError(reason instanceof Error ? reason.message : "Gagal memuat riwayat bersama.");
+      if (alive.current) setStorageError(reason instanceof Error ? reason.message : "Gagal memuat riwayat lokal.");
     } finally { working.current = false; }
   }, []);
 
   const save = useCallback(async () => {
-    if (working.current || busyRef.current || !dirty.current || !current.current || !revision.current) return;
+    if (working.current || busyRef.current || !dirty.current || !current.current) return;
     const conversations = current.current.conversations;
-    const body = JSON.stringify({ revision: revision.current, conversations });
-    if (new Blob([body]).size > HISTORY_BYTES) {
-      blocked.current = true;
-      setStorageError("Riwayat bersama maksimal 3 MB. Ekspor cadangan, kurangi percakapan/lampiran, lalu coba simpan lagi.");
-      return;
-    }
     working.current = true;
     setSaving(true);
     try {
-      const response = await fetch("/api/history", { method: "PUT", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(25000) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Gagal menyimpan riwayat.");
-      if (!validRevision(data.revision)) throw new Error("Respons penyimpanan tidak valid.");
+      localStorage.setItem(WORKSPACE_KEY, JSON.stringify(current.current));
       if (!alive.current) return;
-      revision.current = data.revision;
       dirty.current = current.current?.conversations !== conversations;
       blocked.current = false;
       setPending(dirty.current);
       setStorageError("");
     } catch (reason) {
       blocked.current = true;
-      if (alive.current) setStorageError(reason instanceof Error ? reason.message : "Gagal menyimpan riwayat.");
+      if (alive.current) setStorageError(reason instanceof Error ? reason.message : "Gagal menyimpan riwayat lokal.");
     } finally { working.current = false; if (alive.current) setSaving(false); }
   }, []);
 
@@ -144,7 +135,7 @@ export default function useSharedWorkspace(busy: boolean, confirm: Confirm) {
   }
 
   async function reload() {
-    if (dirty.current && !await confirm({ title: "Muat ulang riwayat?", description: "Perubahan lokal yang belum tersimpan akan diganti dengan riwayat bersama. Ekspor cadangan dulu jika masih diperlukan.", label: "Muat ulang", danger: true })) return;
+    if (dirty.current && !await confirm({ title: "Muat ulang riwayat?", description: "Perubahan lokal yang belum tersimpan akan diganti dengan riwayat browser tersimpan. Ekspor cadangan dulu jika masih diperlukan.", label: "Muat ulang", danger: true })) return;
     await load(true);
   }
 

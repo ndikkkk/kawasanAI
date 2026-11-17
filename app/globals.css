@@ -9,6 +9,7 @@
 .document-preview details { margin-top:12px; }
 .document-preview pre { max-height:260px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
 .document-cancel { align-self:flex-start; margin-top:8px; }
+.document-cancel.stop-response { font-size:11px; line-height:1.4; padding:6px 9px; }
 * { box-sizing:border-box; }
 .user-avatar { display:block; width:30px; height:30px; border-radius:9px; object-fit:cover; }
 body { margin:0; background:var(--paper); color:var(--ink); font-family:Manrope, sans-serif; }
@@ -82,19 +83,22 @@ input { outline:0; }
 .workspace .chat-layout { padding-top:48px; max-width:860px; }
 .workspace .topbar { padding:0 24px; gap:12px; }
 .workspace .top-actions { margin-left:auto; }
-.message-bubble { min-width:0; overflow-wrap:anywhere; }
+.message-bubble { min-width:0; overflow-wrap:anywhere; white-space:normal; }
 /* ── Markdown content inside message bubbles ── */
 .message-bubble h1,.message-bubble h2,.message-bubble h3,.message-bubble h4 { margin:1em 0 0.5em; line-height:1.3; font-weight:700; }
 .message-bubble h1 { font-size:1.25em; }
 .message-bubble h2 { font-size:1.1em; }
 .message-bubble h3 { font-size:1.05em; }
-.message-bubble p { margin:0 0 0.6em; }
+.message-bubble p { margin:0 0 0.6em; white-space:pre-wrap; }
 .message-bubble p:last-child { margin-bottom:0; }
 .message-bubble ul,.message-bubble ol { margin:0.4em 0; padding-left:1.5em; }
 .message-bubble li { margin:0.15em 0; }
+.message-bubble li > p { margin:0; }
+.message-bubble li > p + p { margin-top:0.3em; }
+.message-bubble li > ul,.message-bubble li > ol { margin:0.2em 0; }
 .message-bubble code { font-family:'DM Mono',monospace; font-size:0.9em; }
 .message-bubble .md-code-inline { background:#efeee9; padding:1px 5px; border-radius:4px; color:#30302c; }
-.message-bubble pre { margin:0.6em 0; background:#efeee9; border-radius:8px; padding:10px 12px; overflow-x:auto; font-size:0.88em; line-height:1.5; }
+.message-bubble pre { margin:0.6em 0; background:#efeee9; border-radius:8px; padding:10px 12px; overflow-x:auto; font-size:0.88em; line-height:1.5; white-space:pre-wrap; }
 .message-bubble pre code { background:none; padding:0; border-radius:0; }
 .message-bubble .md-table-wrapper { overflow-x:auto; margin:0.6em 0; }
 .message-bubble table { border-collapse:collapse; font-size:0.9em; width:100%; }
@@ -201,7 +205,7 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
 .file-support p { max-height:12dvh; overflow-y:auto; margin:8px 0 0; }
 .latest-message { position:absolute; bottom:calc(100% + 10px); left:50%; transform:translateX(-50%); border:1px solid var(--line); border-radius:20px; padding:9px 16px; background:var(--paper); color:var(--ink); box-shadow:0 3px 12px #0001; font-size:12px; white-space:nowrap; }
 .answer-actions { position:relative; display:flex; align-items:center; gap:10px; margin-top:12px; white-space:normal; }
-.copy-answer { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:7px; padding:6px 9px; background:var(--paper); color:var(--muted); font-size:11px; }
+.copy-answer { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--line); border-radius:7px; padding:5px 8px; background:var(--paper); color:var(--muted); font-size:10px; line-height:1.4; }
 .copy-answer:hover { color:var(--ink); background:var(--cream); }
 .copy-status { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 @media (max-width:600px) { .composer-inner { width:calc(100% - 28px); }.composer-dock .model-hint { display:none; }.composer-dock .composer-note { font-size:9px; } }

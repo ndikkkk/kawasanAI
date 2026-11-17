@@ -190,7 +190,7 @@ export default function Chat() {
           {busy && !streamed && <div className="message-row assistant"><div className="message-avatar">✦</div><div className="message-bubble typing" aria-label="AI sedang merespons"><i /><i /><i /></div></div>}
         </div>
         {error && <p role="alert" className="error-text chat-error">{error}</p>}
-        {busy && <button type="button" className="document-cancel" onClick={() => controller.current?.abort()}>Hentikan respons</button>}
+        {busy && <button type="button" className="document-cancel stop-response" onClick={() => controller.current?.abort()}>Hentikan respons</button>}
         {notice && <p role="status" className="file-notice">{notice}</p>}
         {reading && <button type="button" className="document-cancel" onClick={() => extraction.current?.abort()}>Batalkan pembacaan</button>}
         {document && <DocumentPreview document={document} selected={selectedPart} locked={locked} onSelect={(index) => { setSelectedPart(index); setAttachment(partAttachment(document, index)); setNotice(`Bagian ${index + 1} siap dikirim. Bagian lain tidak otomatis dibaca AI.`); }} onClose={() => { setDocument(null); setSelectedPart(null); setAttachment(null); setNotice(""); }} />}

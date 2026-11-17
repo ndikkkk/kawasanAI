@@ -17,6 +17,16 @@ export function newWorkspace(): Workspace {
   return { conversations: [conversation], activeId: conversation.id, preferences: { name: "", instructions: "" }, collapsed: false };
 }
 
+// Empty conversations are UI drafts, never persisted or exported as history.
+export function savedConversations(conversations: Conversation[]): Conversation[] {
+  return conversations.filter((chat) => chat.messages.length > 0);
+}
+
+export function workspaceSnapshot(workspace: Workspace): Workspace {
+  const conversations = savedConversations(workspace.conversations);
+  return { ...workspace, conversations, activeId: conversations.some((chat) => chat.id === workspace.activeId) ? workspace.activeId : conversations[0]?.id || "" };
+}
+
 export function validMessages(value: unknown): value is ChatMessage[] {
   return Array.isArray(value) && value.every((message) => message &&
     (message.role === "user" || message.role === "assistant") && typeof message.content === "string" &&

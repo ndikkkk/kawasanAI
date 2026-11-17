@@ -3,7 +3,7 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { AVAILABLE_MODELS } from "../lib/models";
-import { Attachment, ChatMessage, Conversation, messageContent, newConversation } from "../lib/chat-store";
+import { Attachment, ChatMessage, Conversation, messageContent, newConversation, savedConversations } from "../lib/chat-store";
 import { documentError, documentFile, documentParts, ExtractedDocument, partAttachment } from "../lib/document-text";
 import { documentConfiguration, readDocument } from "../lib/read-document";
 import DocumentPreview from "./document-preview";
@@ -60,9 +60,8 @@ export default function Chat() {
   function resetComposer() { setInput(""); setAttachment(null); setDocument(null); setSelectedPart(null); setError(""); setStreamed(""); setNotice(""); setEditingId(null); setMobileOpen(false); }
   function createChat() {
     if (sending.current || reading || saving) return;
-    if ((workspace?.conversations.length ?? 0) >= 100) { setError("Maksimal 100 percakapan bersama. Ekspor lalu hapus percakapan yang tidak diperlukan."); return; }
     const chat = newConversation();
-    setWorkspace((current) => current ? { ...current, conversations: [chat, ...current.conversations], activeId: chat.id } : current);
+    setWorkspace((current) => current ? { ...current, conversations: [chat, ...savedConversations(current.conversations)], activeId: chat.id } : current);
     resetComposer();
   }
   function selectChat(id: string) {
@@ -121,6 +120,7 @@ export default function Chat() {
   async function send(event: FormEvent) {
     event.preventDefault();
     if (!active || !workspace || (!input.trim() && !attachment) || sending.current || reading || saving) return;
+    if (!active.messages.length && savedConversations(workspace.conversations).length >= 100) { setError("Maksimal 100 percakapan. Hapus percakapan yang tidak diperlukan sebelum mengirim pesan baru."); return; }
     const userText = input.trim() || "Tolong analisis file yang saya lampirkan.";
     const userMessage: ChatMessage = { role: "user", content: userText, ...(attachment ? { attachment } : {}) };
     const next = [...active.messages, userMessage];
@@ -167,7 +167,7 @@ export default function Chat() {
       <button className="new-chat" disabled={locked} onClick={createChat} title="New Brainstorm" aria-label="New Brainstorm"><span>＋</span><span className="sidebar-label">New Brainstorm</span></button>
       <p className="sidebar-label eyebrow">RIWAYAT BRAINSTORM</p>
       <nav className="history-list" aria-label="Percakapan tersimpan">
-        {[...workspace.conversations].sort((a, b) => b.updatedAt - a.updatedAt).map((chat) => <div key={chat.id} className={`history-item ${chat.id === active.id ? "selected" : ""}`}>
+        {savedConversations(workspace.conversations).sort((a, b) => b.updatedAt - a.updatedAt).map((chat) => <div key={chat.id} className={`history-item ${chat.id === active.id ? "selected" : ""}`}>
           {editingId === chat.id ? <form className="rename-form" onSubmit={(event) => rename(event, chat.id)}><input aria-label="Judul brainstorm" autoFocus maxLength={70} value={title} onChange={(event) => setTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingId(null); }} /><button aria-label="Simpan judul" disabled={!title.trim()}>✓</button><button type="button" aria-label="Batal ubah judul" onClick={() => setEditingId(null)}>×</button></form> : <>
             <button className="history-select" aria-current={chat.id === active.id ? "page" : undefined} title={chat.title} disabled={locked} onClick={() => selectChat(chat.id)}><span aria-hidden="true">◇</span><span className="sidebar-label history-title">{chat.title}</span></button>
             <div className="history-actions sidebar-label"><button aria-label={`Ubah judul ${chat.title}`} disabled={locked} onClick={() => { setEditingId(chat.id); setTitle(chat.title); }}>✎</button><button aria-label={`Hapus ${chat.title}`} disabled={locked} onClick={() => deleteChat(chat)}>×</button></div>

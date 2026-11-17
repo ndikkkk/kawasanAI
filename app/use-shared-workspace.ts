@@ -1,7 +1,7 @@
 "use client";
 
 import { Dispatch, SetStateAction, useCallback, useEffect, useRef, useState } from "react";
-import { Workspace, newWorkspace } from "../lib/chat-store";
+import { Workspace, newWorkspace, newConversation, savedConversations, workspaceSnapshot } from "../lib/chat-store";
 import { validConversations } from "../lib/shared-history";
 import type { Confirm } from "./use-confirmation";
 
@@ -26,7 +26,7 @@ export default function useSharedWorkspace(busy: boolean, confirm: Confirm) {
   const setWorkspace: Dispatch<SetStateAction<Workspace | null>> = useCallback((action) => {
     const previous = current.current;
     const next = typeof action === "function" ? action(previous) : action;
-    if (previous && next && previous.conversations !== next.conversations) {
+    if (previous && next && JSON.stringify(savedConversations(previous.conversations)) !== JSON.stringify(savedConversations(next.conversations))) {
       dirty.current = true;
       setPending(true);
     }
@@ -49,6 +49,7 @@ export default function useSharedWorkspace(busy: boolean, confirm: Confirm) {
         }
       } catch { throw new Error("Riwayat lokal tidak valid atau tidak dapat dibaca; data tidak ditimpa."); }
       if (!alive.current || busyRef.current || initialConversations !== current.current?.conversations || (!force && dirty.current)) return;
+      const initialLoad = !current.current;
       let previous = current.current;
       if (!previous) {
         previous = newWorkspace();
@@ -66,8 +67,13 @@ export default function useSharedWorkspace(busy: boolean, confirm: Confirm) {
         }
       }
       const source = savedWorkspace || previous;
-      const conversations = source.conversations.length ? source.conversations : newWorkspace().conversations;
-      const next = { ...previous, ...source, conversations, activeId: conversations.some((chat) => chat.id === source.activeId) ? source.activeId : conversations[0].id };
+      const conversations = savedConversations(source.conversations);
+      // Start each entry with a fresh draft; polling must not replace an active draft.
+      const draft = initialLoad ? newConversation() : previous.conversations.find((chat) => chat.id === previous.activeId && !chat.messages.length);
+      if (draft) conversations.unshift(draft);
+      if (!conversations.length) conversations.push(newConversation());
+      const activeId = draft?.id || (conversations.some((chat) => chat.id === previous.activeId) ? previous.activeId : conversations[0].id);
+      const next = { ...previous, ...source, conversations, activeId };
       current.current = next;
       render(next);
       dirty.current = false;
@@ -85,7 +91,7 @@ export default function useSharedWorkspace(busy: boolean, confirm: Confirm) {
     working.current = true;
     setSaving(true);
     try {
-      localStorage.setItem(WORKSPACE_KEY, JSON.stringify(current.current));
+      localStorage.setItem(WORKSPACE_KEY, JSON.stringify(workspaceSnapshot(current.current)));
       if (!alive.current) return;
       dirty.current = current.current?.conversations !== conversations;
       blocked.current = false;
@@ -128,7 +134,7 @@ export default function useSharedWorkspace(busy: boolean, confirm: Confirm) {
 
   function exportHistory() {
     if (!current.current) return;
-    const url = URL.createObjectURL(new Blob([JSON.stringify(current.current, null, 2)], { type: "application/json" }));
+    const url = URL.createObjectURL(new Blob([JSON.stringify(workspaceSnapshot(current.current), null, 2)], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url; link.download = "kawasan-ai-history.json"; link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);

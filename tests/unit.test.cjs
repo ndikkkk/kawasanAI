@@ -29,6 +29,24 @@ const { boundedBody, BodyTooLarge } = require("../lib/request-body.ts");
 const DocumentPreview = require("../app/document-preview.tsx").default;
 const { documentParser, extractLocalPdf } = require("../lib/opendataloader.ts");
 const { readAiResponse } = require("../lib/ai-stream.ts");
+const { newWorkspace, newConversation, workspaceSnapshot, savedConversations } = require("../lib/chat-store.ts");
+
+test("empty brainstorm drafts are excluded from history and snapshots", () => {
+  const workspace = newWorkspace();
+  assert.deepEqual(workspaceSnapshot(workspace).conversations, []);
+  assert.equal(workspaceSnapshot(workspace).activeId, "");
+  const sent = newConversation();
+  sent.messages.push({ role: "user", content: "Halo" });
+  workspace.conversations.push(sent);
+  const snapshot = workspaceSnapshot(workspace);
+  assert.deepEqual(snapshot.conversations, [sent]);
+  assert.equal(snapshot.activeId, sent.id);
+  assert.equal(workspace.conversations.length, 2);
+  workspace.activeId = sent.id;
+  assert.equal(workspaceSnapshot(workspace).activeId, sent.id);
+  sent.messages = [];
+  assert.deepEqual(savedConversations(workspace.conversations), []);
+});
 
 function streamResponse(text, byteSize = 7) {
   const bytes = new TextEncoder().encode(text);

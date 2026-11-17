@@ -40,7 +40,7 @@ export default function LoginForm() {
         <p className="muted">Masukkan kode akses untuk mulai berbincang dengan AI.</p>
         <form onSubmit={submit} className="login-form">
           <label htmlFor="code">Kode akses</label>
-          <input id="code" type="password" autoFocus value={code} onChange={(event) => setCode(event.target.value)} placeholder="Masukkan kode rahasia" required />
+          <input id="code" type="password" autoFocus value={code} onChange={(event) => setCode(event.target.value)} placeholder="Masukkan kode akses" required />
           {error && <p className="error-text">{error}</p>}
           <button className="primary-button" disabled={loading}>{loading ? "Memeriksa…" : "Masuk ke Kawasan AI"}<span>→</span></button>
         </form>
